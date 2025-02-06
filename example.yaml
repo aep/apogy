@@ -1,0 +1,57 @@
+---
+model:   Model
+id:      com.example.Book
+val:
+  properties:
+    name:
+      type: string
+    author:
+      type: string
+    reviews:
+      type: array
+      items:
+        type: object
+          
+    isbn:
+      type: string
+  required:
+    - name
+  reactors:
+    - bookValidator
+    - isbnLookup
+---
+model:  com.example.Book
+id: a410d488-3d33-4e18-af26-6f818968b015
+val:
+  name: Dune
+  author: Frank Herbert
+  reviews:
+    - author: pete
+      text: wow so much sand
+---
+model:  com.example.Book
+id: f1b3d38a-1c36-40a0-a7d3-076a21aa4bae
+val:
+  name: Children of Dune
+  author: Frank Herbert
+  reviews:
+    - author: pete
+      text: wow so much much sand
+---
+model:  com.example.Book
+id: 165c8f38-7ee8-41ba-ae8e-619b291b8fae
+val:
+  name: God Emperor of Dune
+  author: Frank Herbert
+  reviews:
+    - author: pete
+      text: wow ok ok
+---
+model:  com.example.Book
+id: d0251359-4e98-472a-8173-8c303d7f64af
+val:
+  name: Moby Dick
+  author: Melville
+  reviews:
+    - author: pete
+      text: wow so much whale
