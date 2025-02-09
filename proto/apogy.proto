@@ -8,24 +8,24 @@ import "google/protobuf/struct.proto";
 import "google/api/annotations.proto";
 
 service DocumentService {
-  rpc GetDocument(GetDocumentRequest) returns (Document) {
-    option (google.api.http) = {
-      get: "/v1/{model}/{id}"
-    };
-  }
-  
-  rpc PutDocument(PutDocumentRequest) returns (PutDocumentResponse) {
-    option (google.api.http) = {
-      put: "/v1/{document.model}/{document.id}"
-      body: "document"
-    };
-  }
+	rpc GetDocument(GetDocumentRequest) returns (Document) {
+		option (google.api.http) = {
+			get: "/v1/{model}/{id}"
+		};
+	}
 
-  rpc SearchDocuments(SearchRequest) 	returns (SearchResponse) {
-    option (google.api.http) = {
-      post: "/v1/q"
-    };
-  }
+	rpc PutDocument(PutDocumentRequest) returns (PutDocumentResponse) {
+		option (google.api.http) = {
+			put: "/v1/{document.model}/{document.id}"
+		 body: "document"
+		};
+	}
+
+	rpc SearchDocuments(SearchRequest) 	returns (SearchResponse) {
+		option (google.api.http) = {
+			post: "/v1/q"
+		};
+	}
 }
 
 message History {
@@ -39,6 +39,7 @@ message Document {
 	optional uint64 	version = 3;
 	optional History 	history = 4;
 	google.protobuf.Struct val = 5;
+	google.protobuf.Struct status = 6;
 }
 
 message PutDocumentRequest {

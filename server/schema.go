@@ -81,42 +81,41 @@ func (s *server) validateSchemaSchema(ctx context.Context, object *pb.Document) 
 	return nil
 }
 
-func (s *server) validateObjectSchema(ctx context.Context, object *pb.Document) error {
+func (s *server) validateObjectSchema(ctx context.Context, object *pb.Document) (*pb.Document, error) {
 
 	r := s.kv.Read()
 	defer r.Close()
 
 	schemaData, err := r.Get(ctx, []byte("o\xffModel\xff"+object.Model+"\xff"))
 	if err != nil {
-		return fmt.Errorf("cannot load model '%s': %w", object.Model, err)
+		return nil, fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}
 
-	var schemaObj pb.Document
-	err = proto.Unmarshal(schemaData, &schemaObj)
+	var schemaObj = new(pb.Document)
+	err = proto.Unmarshal(schemaData, schemaObj)
 	if err != nil {
-		return fmt.Errorf("cannot load model '%s': %w", object.Model, err)
+		return nil, fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}
 
 	schemaJson, err := json.Marshal(schemaObj.Val)
 	if err != nil {
-		return fmt.Errorf("cannot load model '%s': %w", object.Model, err)
+		return nil, fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}
 
 	compiler := jsonschema.NewCompiler()
 	err = compiler.AddResource("schema://"+object.Model, bytes.NewReader(schemaJson))
 	if err != nil {
-		return fmt.Errorf("failed to load schema '%s': %w", object.Model, err)
+		return nil, fmt.Errorf("failed to load schema '%s': %w", object.Model, err)
 	}
 	jschema, err := compiler.Compile("schema://" + object.Model)
 	if err != nil {
-		return fmt.Errorf("failed to load schema '%s': %w", object.Model, err)
+		return nil, fmt.Errorf("failed to load schema '%s': %w", object.Model, err)
 	}
 
 	err = jschema.Validate(object.Val)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return schemaObj, nil
 }
-

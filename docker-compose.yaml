@@ -1,6 +1,6 @@
 services:
   pd:
-    container_name: pd
+    container_name: pd 
     image: pingcap/pd:latest
     command:
         - --name=pd
@@ -24,3 +24,11 @@ services:
     restart: on-failure
     ports:
       - 20160:20160
+  nats:
+    container_name: nats
+    image: nats:latest
+    command: "--js"
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    restart: on-failure

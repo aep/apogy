@@ -1,10 +1,11 @@
 ![apogydb logo](./apogy.png)
 =======
 
-a cloud native reactive json schema database built on tikv
+a cloud native json schema database with durable reactors built on tikv and nats
 
 
  - strongly typed with jsonschema
+ - durable execution inspired by k8s reconcilers
  - declarative migrations
  - fulltext search
  - first class object manipulation cli

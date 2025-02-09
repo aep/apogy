@@ -1,0 +1,49 @@
+---
+model: Reactor
+id: com.example.MailUnroller
+vals:
+  immediate: true
+---
+model: Reactor
+id: com.example.MailSender
+vals:
+---
+model: Model
+id: com.example.EmailTemplate
+val:
+  properties:
+    subject:
+      type: string
+    body:
+      type: string
+    to:
+      type: array
+      items:
+        type: string
+    unrolled:
+      type: boolean
+  reactors:
+    - com.example.MailUnroller
+---
+model: Model
+id: com.example.Email
+val:
+  properties:
+    newsletter:
+      type: string
+    to:
+      type: string
+    sent:
+      type: boolean
+  reactors:
+    - com.example.MailSender
+---
+model: com.example.EmailTemplate
+id: bigWinner2025
+val:
+  subject: you win big
+  body: quadrillion us dolors just send us your SSN quick
+  to:
+    - mikemikeson@example.com
+    - spam-me-daddy@example.com
+---

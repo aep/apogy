@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/structpb"
 	"gopkg.in/yaml.v3"
+	"time"
 )
 
 var (
@@ -65,10 +66,17 @@ func init() {
 	CMD.AddCommand(searchCmd)
 }
 
+type History struct {
+	Created time.Time `yaml:"created"`
+	Updated time.Time `yaml:"updated"`
+}
 type Object struct {
-	Model string                 `yaml:"model"`
-	ID    string                 `yaml:"id"`
-	Val   map[string]interface{} `yaml:"val"`
+	Model   string                 `yaml:"model"`
+	ID      string                 `yaml:"id"`
+	Version *uint64                `yaml:"version,omitempty"`
+	History *History               `yaml:"history,omitempty"`
+	Val     map[string]interface{} `yaml:"val"`
+	Status  map[string]interface{} `yaml:"status,omitempty"`
 }
 
 func parseFile(file string) ([]Object, error) {
@@ -126,9 +134,10 @@ func put(cmd *cobra.Command, args []string) {
 		}
 
 		doc := &proto.Document{
-			Model: obj.Model,
-			Id:    obj.ID,
-			Val:   val,
+			Model:   obj.Model,
+			Id:      obj.ID,
+			Val:     val,
+			Version: obj.Version,
 		}
 
 		resp, err := client.PutDocument(context.Background(), &proto.PutDocumentRequest{
@@ -161,9 +170,18 @@ func get(cmd *cobra.Command, args []string) {
 	}
 
 	obj := Object{
-		Model: resp.Model,
-		ID:    resp.Id,
-		Val:   resp.Val.AsMap(),
+		Model:   resp.Model,
+		ID:      resp.Id,
+		Version: resp.Version,
+		Val:     resp.Val.AsMap(),
+		Status:  resp.Status.AsMap(),
+	}
+
+	if resp.History != nil {
+		obj.History = &History{
+			Created: resp.History.Created.AsTime(),
+			Updated: resp.History.Updated.AsTime(),
+		}
 	}
 
 	enc := yaml.NewEncoder(os.Stdout)
@@ -250,9 +268,11 @@ func edit(cmd *cobra.Command, args []string) {
 	}
 
 	obj := Object{
-		Model: resp.Model,
-		ID:    resp.Id,
-		Val:   resp.Val.AsMap(),
+		Model:   resp.Model,
+		ID:      resp.Id,
+		Val:     resp.Val.AsMap(),
+		Version: resp.Version,
+		Status:  resp.Status.AsMap(),
 	}
 
 	// Create temporary file

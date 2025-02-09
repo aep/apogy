@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "apogy/proto";
+
+message Nothing {}
+
+service ReactorService {
+	rpc ReactorLoop   (ReactorStart) returns (stream ReactorActivation) {}
+	rpc ReactorWork   (ReactorUpdate) returns (Nothing) {}
+}
+
+message ReactorStart {
+	string id = 1;
+}
+
+message ReactorActivation {
+	string model = 2;
+	string id    = 3;
+	uint64 version = 4;
+}
+
+message ReactorUpdate {
+	string 	model = 2;
+	string 	id = 3;
+	uint64 	version = 4;
+	bool 	done = 5;
+}
+
