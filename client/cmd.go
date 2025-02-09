@@ -1,47 +1,47 @@
 package client
 
 import (
-	"apogy/api"
-	"bytes"
-	"encoding/json"
+	"apogy/proto"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/structpb"
 	"gopkg.in/yaml.v3"
 )
 
 var (
 	file    string
-	baseURL = "http://localhost:5051"
+	address = "localhost:5051"
 
 	CMD = &cobra.Command{
 		Use:   "client",
-		Short: "HTTP client",
+		Short: "gRPC client",
 	}
 
 	putCmd = &cobra.Command{
 		Use:     "put",
 		Aliases: []string{"apply"},
-		Short:   "Put an object from file",
+		Short:   "Put a document from file",
 		Run:     put,
 	}
 
 	getCmd = &cobra.Command{
 		Use:   "get [model/id]",
-		Short: "Get an object",
+		Short: "Get a document",
 		Args:  cobra.ExactArgs(1),
 		Run:   get,
 	}
 
 	editCmd = &cobra.Command{
 		Use:   "edit [model/id]",
-		Short: "Edit an object",
+		Short: "Edit a document",
 		Args:  cobra.ExactArgs(1),
 		Run:   edit,
 	}
@@ -49,7 +49,7 @@ var (
 	searchCmd = &cobra.Command{
 		Use:     "search [model] [q]",
 		Aliases: []string{"find"},
-		Short:   "Search for objects",
+		Short:   "Search for documents",
 		Args:    cobra.MinimumNArgs(2),
 		Run:     search,
 	}
@@ -65,7 +65,13 @@ func init() {
 	CMD.AddCommand(searchCmd)
 }
 
-func parseFile(file string) ([]api.Object, error) {
+type Object struct {
+	Model string                 `yaml:"model"`
+	ID    string                 `yaml:"id"`
+	Val   map[string]interface{} `yaml:"val"`
+}
+
+func parseFile(file string) ([]Object, error) {
 	var data []byte
 	var err error
 
@@ -79,14 +85,14 @@ func parseFile(file string) ([]api.Object, error) {
 	}
 
 	docs := strings.Split(string(data), "---\n")
-	var objects []api.Object
+	var objects []Object
 
 	for _, doc := range docs {
 		if strings.TrimSpace(doc) == "" {
 			continue
 		}
 
-		var obj api.Object
+		var obj Object
 		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
 			return nil, fmt.Errorf("failed to parse document: %v", err)
 		}
@@ -96,66 +102,68 @@ func parseFile(file string) ([]api.Object, error) {
 	return objects, nil
 }
 
+func getClient() (proto.DocumentServiceClient, *grpc.ClientConn) {
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		log.Fatalf("Failed to connect: %v", err)
+	}
+	return proto.NewDocumentServiceClient(conn), conn
+}
+
 func put(cmd *cobra.Command, args []string) {
 	objects, err := parseFile(file)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	client, conn := getClient()
+	defer conn.Close()
+
 	for _, obj := range objects {
-		var req api.PutObjectRequest
-		req.Object = obj
-
-		jsonData, err := json.Marshal(req)
+		val, err := structpb.NewStruct(obj.Val)
 		if err != nil {
-			panic(err)
+			log.Fatalf("Failed to convert value: %v", err)
 		}
 
-		resp, err := http.Post(baseURL+"/o", "application/json", bytes.NewBuffer(jsonData))
+		doc := &proto.Document{
+			Model: obj.Model,
+			Id:    obj.ID,
+			Val:   val,
+		}
+
+		resp, err := client.PutDocument(context.Background(), &proto.PutDocumentRequest{
+			Document: doc,
+		})
 		if err != nil {
-			log.Fatalf("Failed to put object: %v", err)
-		}
-		defer resp.Body.Close()
-
-		var putResp api.PutObjectResponse
-		if resp.StatusCode >= 300 {
-			if err := json.NewDecoder(resp.Body).Decode(&putResp); err == nil && putResp.Error != "" {
-				log.Fatalf("Failed to put object: %d: %s", resp.StatusCode, putResp.Error)
-			}
-			log.Fatalf("Failed to put object: %d: %s", resp.StatusCode, resp.Status)
+			log.Fatalf("Failed to put document: %v", err)
 		}
 
-		if err := json.NewDecoder(resp.Body).Decode(&putResp); err != nil {
-			log.Fatalf("Failed to decode response: %v", err)
-		}
-
-		if putResp.Error != "" {
-			fmt.Fprintf(os.Stderr, "remote error: %s\n", putResp.Error)
-			os.Exit(1)
-			return
-		}
-		fmt.Println(putResp.Path)
+		fmt.Println(resp.Path)
 	}
 }
 
 func get(cmd *cobra.Command, args []string) {
-	id := args[0]
+	parts := strings.Split(args[0], "/")
+	if len(parts) != 2 {
+		log.Fatal("Invalid id format. Expected model/id")
+	}
+	model, id := parts[0], parts[1]
 
-	resp, err := http.Get(fmt.Sprintf("%s/o/%s", baseURL, id))
+	client, conn := getClient()
+	defer conn.Close()
+
+	resp, err := client.GetDocument(context.Background(), &proto.GetDocumentRequest{
+		Model: model,
+		Id:    id,
+	})
 	if err != nil {
-		log.Fatalf("Failed to get object: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		fmt.Fprintf(os.Stderr, "not found\n")
-		os.Exit(1)
-		return
+		log.Fatalf("Failed to get document: %v", err)
 	}
 
-	var obj api.Object
-	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
-		log.Fatalf("Failed to decode response: %v", err)
+	obj := Object{
+		Model: resp.Model,
+		ID:    resp.Id,
+		Val:   resp.Val.AsMap(),
 	}
 
 	enc := yaml.NewEncoder(os.Stdout)
@@ -165,21 +173,34 @@ func get(cmd *cobra.Command, args []string) {
 	}
 }
 
-func parseFilter(arg string) api.Filter {
-	filter := api.Filter{}
+func parseFilter(arg string) *proto.Filter {
+	filter := &proto.Filter{}
+
 	// Check for comparison operators
 	if strings.Contains(arg, "=") {
 		parts := strings.Split(arg, "=")
+		val, err := structpb.NewValue(parts[1])
+		if err != nil {
+			log.Fatalf("Failed to parse value: %v", err)
+		}
 		filter.Key = parts[0]
-		filter.Equal = parts[1]
+		filter.Condition = &proto.Filter_Equal{Equal: val}
 	} else if strings.Contains(arg, ">") {
 		parts := strings.Split(arg, ">")
+		val, err := structpb.NewValue(parts[1])
+		if err != nil {
+			log.Fatalf("Failed to parse value: %v", err)
+		}
 		filter.Key = parts[0]
-		filter.Greater = parts[1]
+		filter.Condition = &proto.Filter_Greater{Greater: val}
 	} else if strings.Contains(arg, "<") {
 		parts := strings.Split(arg, "<")
+		val, err := structpb.NewValue(parts[1])
+		if err != nil {
+			log.Fatalf("Failed to parse value: %v", err)
+		}
 		filter.Key = parts[0]
-		filter.Less = parts[1]
+		filter.Condition = &proto.Filter_Less{Less: val}
 	} else {
 		filter.Key = arg
 	}
@@ -188,57 +209,50 @@ func parseFilter(arg string) api.Filter {
 }
 
 func search(cmd *cobra.Command, args []string) {
+	client, conn := getClient()
+	defer conn.Close()
 
-	var sq api.SearchRequest
-	sq.Model = args[0]
-
+	var filters []*proto.Filter
 	for _, arg := range args[1:] {
-		sq.Filters = append(sq.Filters, parseFilter(arg))
+		filters = append(filters, parseFilter(arg))
 	}
 
-	filterJson, err := json.Marshal(sq)
+	resp, err := client.SearchDocuments(context.Background(), &proto.SearchRequest{
+		Model:   args[0],
+		Filters: filters,
+	})
 	if err != nil {
-		log.Fatalf("Failed to encode filter: %v", err)
+		log.Fatalf("Failed to search documents: %v", err)
 	}
 
-	resp, err := http.Post(baseURL+"/q", "application/json", bytes.NewBuffer(filterJson))
-	if err != nil {
-		log.Fatalf("Failed to search objects: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		log.Fatalf("Failed to search: %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	var cursor api.Cursor
-	if err := json.NewDecoder(resp.Body).Decode(&cursor); err != nil {
-		log.Fatalf("Failed to decode response: %v", err)
-	}
-
-	for _, p := range cursor.Keys {
-		fmt.Println(sq.Model + "/" + p)
+	for _, id := range resp.Ids {
+		fmt.Printf("%s/%s\n", args[0], id)
 	}
 }
 
 func edit(cmd *cobra.Command, args []string) {
-	id := args[0]
+	parts := strings.Split(args[0], "/")
+	if len(parts) != 2 {
+		log.Fatal("Invalid id format. Expected model/id")
+	}
+	model, id := parts[0], parts[1]
 
-	// Get the object first
-	resp, err := http.Get(fmt.Sprintf("%s/o/%s", baseURL, id))
+	client, conn := getClient()
+	defer conn.Close()
+
+	// Get the document first
+	resp, err := client.GetDocument(context.Background(), &proto.GetDocumentRequest{
+		Model: model,
+		Id:    id,
+	})
 	if err != nil {
-		log.Fatalf("Failed to get object: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		fmt.Fprintf(os.Stderr, "not found\n")
-		os.Exit(1)
-		return
+		log.Fatalf("Failed to get document: %v", err)
 	}
 
-	var obj api.Object
-	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
-		log.Fatalf("Failed to decode response: %v", err)
+	obj := Object{
+		Model: resp.Model,
+		ID:    resp.Id,
+		Val:   resp.Val.AsMap(),
 	}
 
 	// Create temporary file

@@ -1,60 +1,60 @@
 package server
 
 import (
-	"apogy/api"
+	pb "apogy/proto"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"strings"
 
-	"github.com/labstack/echo/v4"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
-func (s *server) handlePutSchema(c echo.Context, req api.PutObjectRequest) error {
+func (s *server) putSchema(ctx context.Context, req *pb.PutDocumentRequest) (*pb.PutDocumentResponse, error) {
 
-	idparts := strings.FieldsFunc(req.Object.Id, func(r rune) bool {
+	idparts := strings.FieldsFunc(req.Document.Id, func(r rune) bool {
 		return r == '.'
 	})
 	if len(idparts) < 3 {
-		return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-			Error: "validation error (id): must be a domain , like com.example.Book",
-		})
+		return nil, status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain , like com.example.Book")
 	}
 
-	err := s.validateSchemaSchema(c.Request().Context(), req.Object)
+	err := s.validateSchemaSchema(ctx, req.Document)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-			Error: fmt.Sprintf("validation error: %s", err),
-		})
+		return nil, status.Errorf(codes.InvalidArgument, "validation error: %s", err)
 	}
 
-	jo, err := json.Marshal(req.Object)
+	data, err := proto.Marshal(req.Document)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	w := s.kv.Write()
 	defer w.Rollback()
 	defer w.Close()
 
-	w.Put([]byte("o\xffModel\xff"+req.Object.Id+"\xff"), jo)
-
-	err = w.Commit(c.Request().Context())
+	path, err := safeDBPath("Model", req.Document.Id)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, api.PutObjectResponse{
-			Error: fmt.Sprintf("kv error: %s", err.Error()),
-		})
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, api.PutObjectResponse{
-		Path: "Model/" + req.Object.Id,
-	})
+	w.Put(path, data)
+
+	err = w.Commit(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("kv error: %s", err.Error())
+	}
+
+	return &pb.PutDocumentResponse{
+		Path: "Model/" + req.Document.Id,
+	}, nil
 }
 
-func (s *server) validateSchemaSchema(ctx context.Context, object api.Object) error {
+func (s *server) validateSchemaSchema(ctx context.Context, object *pb.Document) error {
 
 	compiler := jsonschema.NewCompiler()
 	ob, err := json.Marshal(object.Val)
@@ -81,23 +81,23 @@ func (s *server) validateSchemaSchema(ctx context.Context, object api.Object) er
 	return nil
 }
 
-func (s *server) validateObjectSchema(ctx context.Context, object api.Object) error {
+func (s *server) validateObjectSchema(ctx context.Context, object *pb.Document) error {
 
 	r := s.kv.Read()
 	defer r.Close()
 
-	schemaJson, err := r.Get(ctx, []byte("o\xffModel\xff"+object.Model+"\xff"))
+	schemaData, err := r.Get(ctx, []byte("o\xffModel\xff"+object.Model+"\xff"))
 	if err != nil {
 		return fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}
 
-	var schemaObj api.Object
-	err = json.Unmarshal(schemaJson, &schemaObj)
+	var schemaObj pb.Document
+	err = proto.Unmarshal(schemaData, &schemaObj)
 	if err != nil {
 		return fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}
 
-	schemaJson, err = json.Marshal(schemaObj.Val)
+	schemaJson, err := json.Marshal(schemaObj.Val)
 	if err != nil {
 		return fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}
@@ -119,3 +119,4 @@ func (s *server) validateObjectSchema(ctx context.Context, object api.Object) er
 
 	return nil
 }
+

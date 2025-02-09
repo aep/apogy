@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "apogy/proto";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "google/api/annotations.proto";
+
+service DocumentService {
+  rpc GetDocument(GetDocumentRequest) returns (Document) {
+    option (google.api.http) = {
+      get: "/v1/{model}/{id}"
+    };
+  }
+  
+  rpc PutDocument(PutDocumentRequest) returns (PutDocumentResponse) {
+    option (google.api.http) = {
+      put: "/v1/{document.model}/{document.id}"
+      body: "document"
+    };
+  }
+
+  rpc SearchDocuments(SearchRequest) 	returns (SearchResponse) {
+    option (google.api.http) = {
+      post: "/v1/q"
+    };
+  }
+}
+
+message History {
+	google.protobuf.Timestamp created = 1;
+	google.protobuf.Timestamp updated = 2;
+}
+
+message Document {
+	string id = 1;
+	string model = 2;
+	optional uint64 	version = 3;
+	optional History 	history = 4;
+	google.protobuf.Struct val = 5;
+}
+
+message PutDocumentRequest {
+	Document document = 1;
+}
+
+message PutDocumentResponse {
+	string path = 2;
+}
+
+message GetDocumentRequest {
+	string model = 1;
+	string id = 2;
+}
+
+
+message Filter {
+	string key = 1;
+	oneof condition {
+		google.protobuf.Value equal = 2;
+		google.protobuf.Value greater = 3;
+		google.protobuf.Value less = 4;
+	}
+}
+
+message SearchRequest {
+	string model = 1;
+	repeated Filter filters = 2;
+	string cursor = 3;
+}
+
+message SearchResponse {
+	repeated string ids = 1;
+	string cursor = 2;
+}

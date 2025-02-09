@@ -1,21 +1,22 @@
 package server
 
 import (
-	"apogy/api"
 	"apogy/kv"
+	"apogy/proto"
 	"encoding/binary"
 	"fmt"
+	"google.golang.org/protobuf/types/known/structpb"
 	"log/slog"
 	"math"
 )
 
-func deleteIndex(w kv.Write, object api.Object) error {
+func deleteIndex(w kv.Write, object *proto.Document) error {
 	pathPrefix := []byte(fmt.Sprintf("f\xff%s\xffval", object.Model))
 	pathPostfix := []byte(fmt.Sprintf("%s", object.Id))
 	return writeIndexI(w, pathPrefix, pathPostfix, object.Val, true)
 }
 
-func createIndex(w kv.Write, object api.Object) error {
+func createIndex(w kv.Write, object *proto.Document) error {
 	pathPrefix := []byte(fmt.Sprintf("f\xff%s\xffval", object.Model))
 	pathPostfix := []byte(fmt.Sprintf("%s", object.Id))
 	return writeIndexI(w, pathPrefix, pathPostfix, object.Val, false)
@@ -33,6 +34,31 @@ func writeIndexI(w kv.Write, pathPrefix []byte, pathPostfix []byte, obj any, del
 		}
 	case map[string]interface{}:
 		for k, v := range v {
+
+			// make extra sure there is no 0xff anywhere in the data
+			// it's not valid utf8 so this should not happen
+			// if i dont check it, i'll probably make a mistake later that will allow a filter bypass
+
+			kbin := []byte(k)
+			safe := true
+			for _, ch := range kbin {
+				if ch == 0xff {
+					safe = false
+					break
+				}
+			}
+
+			if safe {
+				pathPrefix2 := append(pathPrefix, '.')
+				pathPrefix2 = append(pathPrefix2, kbin...)
+				err := writeIndexI(w, pathPrefix2, pathPostfix, v, delete)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	case *structpb.Struct:
+		for k, v := range v.AsMap() {
 
 			// make extra sure there is no 0xff anywhere in the data
 			// it's not valid utf8 so this should not happen

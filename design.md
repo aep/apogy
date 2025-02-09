@@ -1,3 +1,15 @@
+## reactors
+
+
+ - they're very much backend code
+ - reactors can be validators
+ - but they can also be reconcilers,
+    syncing the db state with the real world
+    like k8s
+
+ - wasm?
+
+
 ## search
 
 the objects are stored in tikv as o/$model/$id -> json

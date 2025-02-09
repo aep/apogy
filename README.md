@@ -36,7 +36,7 @@ val:
   author: Frank Herbert
 ```
 
-    apogy apply -f example.yaml
+    apogy apply -f examples/quickstart.yaml
 
 try what happens when you violate the jsonschema
 

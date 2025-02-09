@@ -1,39 +1,43 @@
 package server
 
 import (
-	"apogy/api"
+	"apogy/proto"
+	pb "apogy/proto"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"iter"
-	"net/http"
 	"strings"
 
-	kv "apogy/kv"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/labstack/echo/v4"
+	kv "apogy/kv"
 )
 
 func (s *server) find(ctx context.Context, r kv.Read, model string, byID *string,
-	cursor *string, filter api.Filter) iter.Seq2[string, error] {
+	cursor *string, filter *proto.Filter) iter.Seq2[string, error] {
 
 	var start = []byte{'f', 0xff}
 	start = append(start, []byte(model)...)
 	start = append(start, 0xff)
 	start = append(start, []byte(filter.Key)...)
 
-	if filter.Equal != nil {
-		start = append(start, 0xff)
-		start = append(start, filter.Equal.(string)...)
-		start = append(start, 0xff)
+	switch v := filter.Condition.(type) {
+	case *proto.Filter_Equal:
+		switch v := v.Equal.Kind.(type) {
+		case *structpb.Value_StringValue:
+			start = append(start, 0xff)
+			start = append(start, v.StringValue...)
+			start = append(start, 0xff)
+
+		}
 
 		if byID != nil {
 			start = append(start, []byte(*byID)...)
 		}
-		//FIXME optimize the byID case
-
-	} else {
+	default:
 		start = append(start, 0x00)
 	}
 
@@ -83,81 +87,58 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, byID *string
 	}
 }
 
-func (s *server) handleSearch(c echo.Context) error {
+func (s *server) SearchDocuments(ctx context.Context, req *pb.SearchRequest) (*pb.SearchResponse, error) {
 
-	var qq api.SearchRequest
-
-	if c.Request().Method == "POST" {
-		if err := c.Bind(&qq); err != nil {
-			return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-				Error: fmt.Sprintf("invalid request body: %v", err),
-			})
-		}
-	} else {
-		q := c.QueryParam("q")
-		err := json.Unmarshal([]byte(q), &qq)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-				Error: fmt.Sprintf("invalid query: %v", err),
-			})
-		}
-	}
-
-	for _, ch := range qq.Model {
+	for _, ch := range req.Model {
 		if ch == 0xff {
-			return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-				Error: fmt.Sprintf("invalid query"),
-			})
+			return nil, status.Errorf(codes.InvalidArgument, "invalid utf8 string")
 		}
 	}
-	for _, ch := range qq.Cursor {
+	for _, ch := range req.Cursor {
 		if ch == 0xff {
-			return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-				Error: fmt.Sprintf("invalid query"),
-			})
+			return nil, status.Errorf(codes.InvalidArgument, "invalid utf8 string")
 		}
 	}
-	for _, f := range qq.Filters {
+	for _, f := range req.Filters {
 		for _, ch := range f.Key {
 			if ch == 0xff {
-				return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-					Error: fmt.Sprintf("invalid query"),
-				})
+				return nil, status.Errorf(codes.InvalidArgument, "invalid utf8 string")
 			}
 		}
-		if v, ok := f.Equal.(string); ok {
-			for _, ch := range v {
-				if ch == 0xff {
-					return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-						Error: fmt.Sprintf("invalid query"),
-					})
+
+		switch v := f.Condition.(type) {
+		case *proto.Filter_Equal:
+			switch v := v.Equal.Kind.(type) {
+			case *structpb.Value_StringValue:
+				for _, ch := range v.StringValue {
+					if ch == 0xff {
+						return nil, status.Errorf(codes.InvalidArgument, "invalid utf8 string")
+					}
 				}
 			}
-		}
-		if v, ok := f.Greater.(string); ok {
-			for _, ch := range v {
-				if ch == 0xff {
-					return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-						Error: fmt.Sprintf("invalid query"),
-					})
+		case *proto.Filter_Less:
+			switch v := v.Less.Kind.(type) {
+			case *structpb.Value_StringValue:
+				for _, ch := range v.StringValue {
+					if ch == 0xff {
+						return nil, status.Errorf(codes.InvalidArgument, "invalid utf8 string")
+					}
 				}
 			}
-		}
-		if v, ok := f.Less.(string); ok {
-			for _, ch := range v {
-				if ch == 0xff {
-					return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-						Error: fmt.Sprintf("invalid query"),
-					})
+		case *proto.Filter_Greater:
+			switch v := v.Greater.Kind.(type) {
+			case *structpb.Value_StringValue:
+				for _, ch := range v.StringValue {
+					if ch == 0xff {
+						return nil, status.Errorf(codes.InvalidArgument, "invalid utf8 string")
+					}
 				}
 			}
 		}
 	}
 
-	if len(qq.Filters) == 0 || qq.Model == "" {
-		return c.JSON(http.StatusBadRequest, api.PutObjectResponse{
-			Error: fmt.Sprintf("invalid query"),
-		})
+	if len(req.Filters) == 0 || req.Model == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid query")
 	}
 
 	r := s.kv.Read()
@@ -166,24 +147,20 @@ func (s *server) handleSearch(c echo.Context) error {
 
 	// TODO cursor
 
-	var rsp api.Cursor
+	var rsp = new(proto.SearchResponse)
 
-	for k, err := range s.find(c.Request().Context(), r, qq.Model, nil, nil, qq.Filters[0]) {
+	for k, err := range s.find(ctx, r, req.Model, nil, nil, req.Filters[0]) {
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, api.PutObjectResponse{
-				Error: fmt.Sprintf("tikv range: %v", err),
-			})
+			return nil, err
 		}
 
 		allMatch := true
-		for _, fine := range qq.Filters[1:] {
+		for _, fine := range req.Filters[1:] {
 
 			thisMatch := false
-			for k2, err := range s.find(c.Request().Context(), r, qq.Model, &k, nil, fine) {
+			for k2, err := range s.find(ctx, r, req.Model, &k, nil, fine) {
 				if err != nil {
-					return c.JSON(http.StatusInternalServerError, api.PutObjectResponse{
-						Error: fmt.Sprintf("tikv range: %v", err),
-					})
+					return nil, err
 				}
 				if k == k2 {
 					thisMatch = true
@@ -199,10 +176,10 @@ func (s *server) handleSearch(c echo.Context) error {
 		if !allMatch {
 			continue
 		}
-		rsp.Keys = append(rsp.Keys, k)
+		rsp.Ids = append(rsp.Ids, k)
 	}
 
-	return c.JSON(http.StatusOK, rsp)
+	return rsp, nil
 }
 
 func escapeNonPrintable(b []byte) string {
