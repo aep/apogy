@@ -6,20 +6,30 @@ import (
 	"iter"
 
 	"github.com/cockroachdb/pebble"
+	"sync"
 )
 
 type Pebbledb struct {
 	db *pebble.DB
+
+	// FIXME pebble doesnt actually the same MVCC as tikv. this is good enough for local testing
+	globalWriteLock sync.Mutex
 }
 
 type PebbleWrite struct {
+	p        *Pebbledb
 	batch    *pebble.Batch
 	db       *pebble.DB
 	err      error
 	commited bool
+	locked   bool
 }
 
 func (w *PebbleWrite) Commit(ctx context.Context) error {
+	if w.locked {
+		w.locked = false
+		w.p.globalWriteLock.Unlock()
+	}
 	if w.err != nil {
 		return w.err
 	}
@@ -36,6 +46,10 @@ func (w *PebbleWrite) Commit(ctx context.Context) error {
 }
 
 func (w *PebbleWrite) Rollback() error {
+	if w.locked {
+		w.locked = false
+		w.p.globalWriteLock.Unlock()
+	}
 	if w.commited {
 		return fmt.Errorf("already committed")
 	}
@@ -46,6 +60,10 @@ func (w *PebbleWrite) Rollback() error {
 }
 
 func (w *PebbleWrite) Put(key []byte, value []byte) error {
+	if !w.locked {
+		w.p.globalWriteLock.Lock()
+		w.locked = true
+	}
 	if w.err != nil {
 		return w.err
 	}
@@ -59,6 +77,10 @@ func (w *PebbleWrite) Put(key []byte, value []byte) error {
 }
 
 func (w *PebbleWrite) Get(ctx context.Context, key []byte) ([]byte, error) {
+	if !w.locked {
+		w.p.globalWriteLock.Lock()
+		w.locked = true
+	}
 	if w.err != nil {
 		return nil, w.err
 	}
@@ -83,6 +105,10 @@ func (w *PebbleWrite) Get(ctx context.Context, key []byte) ([]byte, error) {
 }
 
 func (w *PebbleWrite) Del(key []byte) error {
+	if !w.locked {
+		w.p.globalWriteLock.Lock()
+		w.locked = true
+	}
 	if w.err != nil {
 		return w.err
 	}
@@ -95,6 +121,10 @@ func (w *PebbleWrite) Del(key []byte) error {
 }
 
 func (r *PebbleWrite) Iter(ctx context.Context, start []byte, end []byte) iter.Seq2[KeyAndValue, error] {
+	if !r.locked {
+		r.p.globalWriteLock.Lock()
+		r.locked = true
+	}
 	return func(yield func(KeyAndValue, error) bool) {
 		iterOptions := &pebble.IterOptions{
 			LowerBound: start,
@@ -202,8 +232,9 @@ func (p *Pebbledb) Close() {
 }
 
 func (p *Pebbledb) Write() Write {
-	batch := p.db.NewBatch()
-	return &PebbleWrite{batch: batch, db: p.db, err: nil, commited: false}
+
+	batch := p.db.NewIndexedBatch()
+	return &PebbleWrite{p: p, batch: batch, db: p.db, err: nil, commited: false}
 }
 
 func (p *Pebbledb) Read() Read {
@@ -223,4 +254,3 @@ func NewPebble() (KV, error) {
 
 	return &Pebbledb{db: db}, nil
 }
-

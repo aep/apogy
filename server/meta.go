@@ -57,3 +57,12 @@ func safeDBPath(model string, id string) ([]byte, error) {
 	}
 	return []byte("o\xff" + model + "\xff" + id + "\xff"), nil
 }
+
+func safeDB(model string) ([]byte, error) {
+	for _, ch := range model {
+		if ch == 0xff {
+			return nil, errors.New("invalid utf8 string")
+		}
+	}
+	return []byte(model), nil
+}

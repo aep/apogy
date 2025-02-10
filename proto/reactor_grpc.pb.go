@@ -20,15 +20,13 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	ReactorService_ReactorLoop_FullMethodName = "/proto.ReactorService/ReactorLoop"
-	ReactorService_ReactorWork_FullMethodName = "/proto.ReactorService/ReactorWork"
 )
 
 // ReactorServiceClient is the client API for ReactorService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ReactorServiceClient interface {
-	ReactorLoop(ctx context.Context, in *ReactorStart, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReactorActivation], error)
-	ReactorWork(ctx context.Context, in *ReactorUpdate, opts ...grpc.CallOption) (*Nothing, error)
+	ReactorLoop(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ReactorIn, ReactorOut], error)
 }
 
 type reactorServiceClient struct {
@@ -39,41 +37,24 @@ func NewReactorServiceClient(cc grpc.ClientConnInterface) ReactorServiceClient {
 	return &reactorServiceClient{cc}
 }
 
-func (c *reactorServiceClient) ReactorLoop(ctx context.Context, in *ReactorStart, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReactorActivation], error) {
+func (c *reactorServiceClient) ReactorLoop(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ReactorIn, ReactorOut], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &ReactorService_ServiceDesc.Streams[0], ReactorService_ReactorLoop_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[ReactorStart, ReactorActivation]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
+	x := &grpc.GenericClientStream[ReactorIn, ReactorOut]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ReactorService_ReactorLoopClient = grpc.ServerStreamingClient[ReactorActivation]
-
-func (c *reactorServiceClient) ReactorWork(ctx context.Context, in *ReactorUpdate, opts ...grpc.CallOption) (*Nothing, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Nothing)
-	err := c.cc.Invoke(ctx, ReactorService_ReactorWork_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
+type ReactorService_ReactorLoopClient = grpc.BidiStreamingClient[ReactorIn, ReactorOut]
 
 // ReactorServiceServer is the server API for ReactorService service.
 // All implementations must embed UnimplementedReactorServiceServer
 // for forward compatibility.
 type ReactorServiceServer interface {
-	ReactorLoop(*ReactorStart, grpc.ServerStreamingServer[ReactorActivation]) error
-	ReactorWork(context.Context, *ReactorUpdate) (*Nothing, error)
+	ReactorLoop(grpc.BidiStreamingServer[ReactorIn, ReactorOut]) error
 	mustEmbedUnimplementedReactorServiceServer()
 }
 
@@ -84,11 +65,8 @@ type ReactorServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedReactorServiceServer struct{}
 
-func (UnimplementedReactorServiceServer) ReactorLoop(*ReactorStart, grpc.ServerStreamingServer[ReactorActivation]) error {
+func (UnimplementedReactorServiceServer) ReactorLoop(grpc.BidiStreamingServer[ReactorIn, ReactorOut]) error {
 	return status.Errorf(codes.Unimplemented, "method ReactorLoop not implemented")
-}
-func (UnimplementedReactorServiceServer) ReactorWork(context.Context, *ReactorUpdate) (*Nothing, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ReactorWork not implemented")
 }
 func (UnimplementedReactorServiceServer) mustEmbedUnimplementedReactorServiceServer() {}
 func (UnimplementedReactorServiceServer) testEmbeddedByValue()                        {}
@@ -112,33 +90,11 @@ func RegisterReactorServiceServer(s grpc.ServiceRegistrar, srv ReactorServiceSer
 }
 
 func _ReactorService_ReactorLoop_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(ReactorStart)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(ReactorServiceServer).ReactorLoop(m, &grpc.GenericServerStream[ReactorStart, ReactorActivation]{ServerStream: stream})
+	return srv.(ReactorServiceServer).ReactorLoop(&grpc.GenericServerStream[ReactorIn, ReactorOut]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ReactorService_ReactorLoopServer = grpc.ServerStreamingServer[ReactorActivation]
-
-func _ReactorService_ReactorWork_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReactorUpdate)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ReactorServiceServer).ReactorWork(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ReactorService_ReactorWork_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ReactorServiceServer).ReactorWork(ctx, req.(*ReactorUpdate))
-	}
-	return interceptor(ctx, in, info, handler)
-}
+type ReactorService_ReactorLoopServer = grpc.BidiStreamingServer[ReactorIn, ReactorOut]
 
 // ReactorService_ServiceDesc is the grpc.ServiceDesc for ReactorService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -146,17 +102,13 @@ func _ReactorService_ReactorWork_Handler(srv interface{}, ctx context.Context, d
 var ReactorService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "proto.ReactorService",
 	HandlerType: (*ReactorServiceServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "ReactorWork",
-			Handler:    _ReactorService_ReactorWork_Handler,
-		},
-	},
+	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "ReactorLoop",
 			Handler:       _ReactorService_ReactorLoop_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "reactor.proto",

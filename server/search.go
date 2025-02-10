@@ -44,9 +44,6 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, byID *string
 	end := bytes.Clone(start)
 	end[len(end)-2] = end[len(end)-2] + 1
 
-	fmt.Println(escapeNonPrintable(start))
-	fmt.Println(escapeNonPrintable(end))
-
 	if cursor != nil {
 		// FIXME check if cursor is above start
 		// FIXME change start to cursor

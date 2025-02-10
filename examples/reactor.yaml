@@ -1,12 +1,10 @@
 ---
 model: Reactor
 id: com.example.MailUnroller
-vals:
-  immediate: true
+
 ---
 model: Reactor
 id: com.example.MailSender
-vals:
 ---
 model: Model
 id: com.example.EmailTemplate

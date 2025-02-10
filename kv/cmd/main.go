@@ -23,7 +23,7 @@ var listCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "List all key-value pairs",
 	Run: func(cmd *cobra.Command, args []string) {
-		kv, err := kv.NewTikv()
+		kv, err := kv.NewPebble()
 		if err != nil {
 			panic(err)
 		}

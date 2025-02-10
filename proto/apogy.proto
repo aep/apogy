@@ -33,6 +33,7 @@ message History {
 	google.protobuf.Timestamp updated = 2;
 }
 
+
 message Document {
 	string id = 1;
 	string model = 2;

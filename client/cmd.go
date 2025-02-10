@@ -4,6 +4,7 @@ import (
 	"apogy/proto"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -54,6 +55,14 @@ var (
 		Args:    cobra.MinimumNArgs(2),
 		Run:     search,
 	}
+
+	reactCmd = &cobra.Command{
+		Use:     "reactor [id]",
+		Aliases: []string{"react"},
+		Short:   "Simulator a react that accepts everything",
+		Args:    cobra.MinimumNArgs(1),
+		Run:     react,
+	}
 )
 
 func init() {
@@ -64,6 +73,7 @@ func init() {
 	CMD.AddCommand(getCmd)
 	CMD.AddCommand(editCmd)
 	CMD.AddCommand(searchCmd)
+	CMD.AddCommand(reactCmd)
 }
 
 type History struct {
@@ -116,6 +126,14 @@ func getClient() (proto.DocumentServiceClient, *grpc.ClientConn) {
 		log.Fatalf("Failed to connect: %v", err)
 	}
 	return proto.NewDocumentServiceClient(conn), conn
+}
+
+func getReactorClient() (proto.ReactorServiceClient, *grpc.ClientConn) {
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		log.Fatalf("Failed to connect: %v", err)
+	}
+	return proto.NewReactorServiceClient(conn), conn
 }
 
 func put(cmd *cobra.Command, args []string) {
@@ -245,6 +263,57 @@ func search(cmd *cobra.Command, args []string) {
 
 	for _, id := range resp.Ids {
 		fmt.Printf("%s/%s\n", args[0], id)
+	}
+}
+
+func react(cmd *cobra.Command, args []string) {
+	client, conn := getReactorClient()
+	defer conn.Close()
+
+	var filters []*proto.Filter
+	for _, arg := range args[1:] {
+		filters = append(filters, parseFilter(arg))
+	}
+
+	bidi, err := client.ReactorLoop(cmd.Context())
+	if err != nil {
+		log.Fatalf("Failed to sub: %v", err)
+	}
+
+	bidi.Send(&proto.ReactorIn{
+		Kind: &proto.ReactorIn_Start{
+			Start: &proto.ReactorStart{
+				Id: args[0],
+			},
+		},
+	})
+
+	for {
+		m, err := bidi.Recv()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("%v\n", m)
+
+		// simulate long work
+		for i := 0; i < 5; i++ {
+			time.Sleep(time.Millisecond * 500)
+			bidi.Send(&proto.ReactorIn{
+				Kind: &proto.ReactorIn_Working{
+					Working: &proto.ReactorWorking{},
+				},
+			})
+		}
+
+		bidi.Send(&proto.ReactorIn{
+			Kind: &proto.ReactorIn_Done{
+				Done: &proto.ReactorDone{},
+			},
+		})
+
 	}
 }
 

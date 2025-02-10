@@ -58,6 +58,10 @@ func (s *server) validateObjectSchema(ctx context.Context, object *pb.Document) 
 		return nil, fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}
 
+	if schemaData == nil {
+		return nil, fmt.Errorf("cannot load model '%s'", object.Model)
+	}
+
 	var schemaObj = new(pb.Document)
 	err = proto.Unmarshal(schemaData, schemaObj)
 	if err != nil {

@@ -120,14 +120,7 @@ func (s *server) PutDocument(ctx context.Context, req *pb.PutDocumentRequest) (*
 	}
 	*req.Document.Version += 1
 
-	if schema != nil {
-		err = s.reconcile(schema, req.Document)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if req.Document.Model == "Model" {
+	if req.Document.Model == "Reactor" {
 		err = s.ensureReactor(ctx, req.Document)
 		if err != nil {
 			return nil, err
@@ -149,6 +142,13 @@ func (s *server) PutDocument(ctx context.Context, req *pb.PutDocumentRequest) (*
 	err = w2.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("tikv error: %v", err)
+	}
+
+	if schema != nil {
+		err = s.reconcile(ctx, schema, req.Document)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &pb.PutDocumentResponse{
