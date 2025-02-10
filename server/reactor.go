@@ -3,10 +3,8 @@ package server
 import (
 	pb "apogy/proto"
 	"context"
-	"fmt"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"log/slog"
 	"strings"
@@ -73,42 +71,22 @@ func (s *server) reconcile(schema *pb.Document, doc *pb.Document) error {
 	return nil
 }
 
-func (s *server) putReactor(ctx context.Context, req *pb.PutDocumentRequest) (*pb.PutDocumentResponse, error) {
-
-	idparts := strings.FieldsFunc(req.Document.Id, func(r rune) bool {
+func (s *server) validateReactorSchema(ctx context.Context, object *pb.Document) error {
+	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
 		return r == '.'
 	})
 	if len(idparts) < 3 {
-		return nil, status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain , like com.example.Book")
+		return status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain , like com.example.Book")
 	}
+	return nil
+}
 
-	err := s.dura.CreateReactor(req.Document.Id)
+func (s *server) ensureReactor(ctx context.Context, object *pb.Document) error {
+
+	err := s.dura.CreateReactor(object.Id)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	data, err := proto.Marshal(req.Document)
-	if err != nil {
-		return nil, err
-	}
-
-	w := s.kv.Write()
-	defer w.Rollback()
-	defer w.Close()
-
-	path, err := safeDBPath("Reactor", req.Document.Id)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	w.Put(path, data)
-
-	err = w.Commit(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("kv error: %s", err.Error())
-	}
-
-	return &pb.PutDocumentResponse{
-		Path: "Reactor/" + req.Document.Id,
-	}, nil
+	return nil
 }

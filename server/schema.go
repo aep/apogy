@@ -14,47 +14,14 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
-func (s *server) putSchema(ctx context.Context, req *pb.PutDocumentRequest) (*pb.PutDocumentResponse, error) {
+func (s *server) validateSchemaSchema(ctx context.Context, object *pb.Document) error {
 
-	idparts := strings.FieldsFunc(req.Document.Id, func(r rune) bool {
+	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
 		return r == '.'
 	})
 	if len(idparts) < 3 {
-		return nil, status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain , like com.example.Book")
+		return status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain , like com.example.Book")
 	}
-
-	err := s.validateSchemaSchema(ctx, req.Document)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "validation error: %s", err)
-	}
-
-	data, err := proto.Marshal(req.Document)
-	if err != nil {
-		return nil, err
-	}
-
-	w := s.kv.Write()
-	defer w.Rollback()
-	defer w.Close()
-
-	path, err := safeDBPath("Model", req.Document.Id)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	w.Put(path, data)
-
-	err = w.Commit(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("kv error: %s", err.Error())
-	}
-
-	return &pb.PutDocumentResponse{
-		Path: "Model/" + req.Document.Id,
-	}, nil
-}
-
-func (s *server) validateSchemaSchema(ctx context.Context, object *pb.Document) error {
 
 	compiler := jsonschema.NewCompiler()
 	ob, err := json.Marshal(object.Val)

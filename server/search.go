@@ -142,7 +142,9 @@ func (s *server) SearchDocuments(ctx context.Context, req *pb.SearchRequest) (*p
 	}
 
 	r := s.kv.Read()
-	r.(*kv.TikvRead).SetKeyOnly(true)
+	if r, ok := r.(*kv.TikvRead); ok {
+		r.SetKeyOnly(true)
+	}
 	defer r.Close()
 
 	// TODO cursor

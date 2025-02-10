@@ -21,15 +21,23 @@ func (s *server) PutDocument(ctx context.Context, req *pb.PutDocumentRequest) (*
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
-	if req.Document.Model == "Model" {
-		return s.putSchema(ctx, req)
-	} else if req.Document.Model == "Reactor" {
-		return s.putReactor(ctx, req)
-	}
+	var schema *pb.Document
 
-	schema, err := s.validateObjectSchema(ctx, req.Document)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "validation error: %s", err)
+	if req.Document.Model == "Model" {
+		err := s.validateSchemaSchema(ctx, req.Document)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "validation error: %s", err)
+		}
+	} else if req.Document.Model == "Reactor" {
+		err := s.validateReactorSchema(ctx, req.Document)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "validation error: %s", err)
+		}
+	} else {
+		schema, err = s.validateObjectSchema(ctx, req.Document)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "validation error: %s", err)
+		}
 	}
 
 	w2 := s.kv.Write()
@@ -112,9 +120,18 @@ func (s *server) PutDocument(ctx context.Context, req *pb.PutDocumentRequest) (*
 	}
 	*req.Document.Version += 1
 
-	err = s.reconcile(schema, req.Document)
-	if err != nil {
-		return nil, err
+	if schema != nil {
+		err = s.reconcile(schema, req.Document)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if req.Document.Model == "Model" {
+		err = s.ensureReactor(ctx, req.Document)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	bytes, err := proto.Marshal(req.Document)

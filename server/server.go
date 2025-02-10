@@ -24,7 +24,7 @@ func newServer(kv kv.KV, dura *dura.Nats) *server {
 }
 
 func Main() {
-	kv, err := kv.NewTikv()
+	kv, err := kv.NewPebble()
 	if err != nil {
 		panic(err)
 	}
