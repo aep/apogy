@@ -1,0 +1,232 @@
+openapi: 3.1.0
+info:
+  title: Apogy DB API
+  version: '1.0.0'
+
+paths:
+  /v1/{model}/{id}:
+    get:
+      operationId: getDocument
+      summary: Get a document by model and ID
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully retrieved document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+    
+  /v1:
+    post:
+      operationId: putDocument
+      summary: Create or update a document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+      responses:
+        '200':
+          description: Successfully stored document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PutDocumentOK'
+
+  /v1/q:
+    post:
+      operationId: searchDocuments
+      summary: Search for documents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+
+  /v1/reactor:
+    get:
+      operationId: reactorLoop
+      summary: Bidirectional streaming for reactor operations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReactorIn'
+      responses:
+        '200':
+          description: Successful connection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactorOut'
+
+components:
+  schemas:
+    History:
+      type: object
+      properties:
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+
+    Document:
+      type: object
+      required:
+        - id
+        - model
+      properties:
+        id:
+          type: string
+        model:
+          type: string
+        version:
+          type: integer
+          format: uint64
+        history:
+          $ref: '#/components/schemas/History'
+        val:
+          type: object
+          additionalProperties: true
+        status:
+          type: object
+          additionalProperties: true
+
+    PutDocumentOK:
+      type: object
+      required:
+        - path
+      properties:
+        path:
+          type: string
+
+    Filter:
+      type: object
+      required:
+        - key
+      properties:
+        key:
+          type: string
+        equal: {}
+        greater: {}
+        less: {}
+
+    SearchRequest:
+      type: object
+      required:
+        - model
+      properties:
+        model:
+          type: string
+        filters:
+          type: array
+          items:
+            $ref: '#/components/schemas/Filter'
+        cursor:
+          type: string
+
+    SearchResponse:
+      type: object
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+        cursor:
+          type: string
+
+    ReactorIn:
+      type: object
+      discriminator:
+        propertyName: kind
+        mapping:
+          start:    '#/components/schemas/ReactorStart'
+          working:  '#/components/schemas/ReactorWorking'
+          done:     '#/components/schemas/ReactorDone'
+      oneOf:
+        - $ref: '#/components/schemas/ReactorStart'
+        - $ref: '#/components/schemas/ReactorWorking'
+        - $ref: '#/components/schemas/ReactorDone'
+
+
+    ReactorStart:
+      type: object
+      required:
+        - kind
+        - id
+      properties:
+        kind:
+          type: string
+          enum: [start]
+        id:
+          type: string
+
+    ReactorWorking:
+      type: object
+      required:
+        - kind
+      properties:
+        kind:
+          type: string
+          enum: [working]
+
+    ReactorDone:
+      type: object
+      required:
+        - kind
+      properties:
+        kind:
+          type: string
+          enum: [done]
+
+    ReactorOut:
+      type: object
+      discriminator:
+        propertyName: kind
+        mapping:
+          activation:    '#/components/schemas/ReactorActivation'
+      properties:
+        activation:
+          $ref: '#/components/schemas/ReactorActivation'
+
+    ReactorActivation:
+      type: object
+      required:
+        - kind
+        - model
+        - id
+        - version
+      properties:
+        kind:
+          type: string
+          enum: [activation]
+        model:
+          type: string
+        id:
+          type: string
+        version:
+          type: integer
+          format: uint64

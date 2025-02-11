@@ -1,12 +1,12 @@
 package server
 
 import (
-	pb "apogy/proto"
+	"apogy/api/go"
 	"errors"
 	"fmt"
 )
 
-func validateMeta(doc *pb.Document) error {
+func validateMeta(doc *openapi.Document) error {
 
 	if len(doc.Model) < 1 {
 		return fmt.Errorf("validation error: /model must not be empty")

@@ -1,4 +1,4 @@
-package stream
+package bus
 
 import (
 	natsd "github.com/nats-io/nats-server/v2/server"

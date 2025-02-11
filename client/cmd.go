@@ -1,30 +1,29 @@
 package client
 
 import (
-	"apogy/proto"
 	"context"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
-
-	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/structpb"
-	"gopkg.in/yaml.v3"
 	"time"
+
+	"apogy/api/go"
+
+	"github.com/gorilla/websocket"
+	"github.com/spf13/cobra"
+	"sigs.k8s.io/yaml"
 )
 
 var (
 	file    string
-	address = "localhost:5051"
+	address = "http://localhost:5052"
 
 	CMD = &cobra.Command{
 		Use:   "client",
-		Short: "gRPC client",
+		Short: "API client",
 	}
 
 	putCmd = &cobra.Command{
@@ -76,20 +75,7 @@ func init() {
 	CMD.AddCommand(reactCmd)
 }
 
-type History struct {
-	Created time.Time `yaml:"created"`
-	Updated time.Time `yaml:"updated"`
-}
-type Object struct {
-	Model   string                 `yaml:"model"`
-	ID      string                 `yaml:"id"`
-	Version *uint64                `yaml:"version,omitempty"`
-	History *History               `yaml:"history,omitempty"`
-	Val     map[string]interface{} `yaml:"val"`
-	Status  map[string]interface{} `yaml:"status,omitempty"`
-}
-
-func parseFile(file string) ([]Object, error) {
+func parseFile(file string) ([]openapi.Document, error) {
 	var data []byte
 	var err error
 
@@ -103,14 +89,14 @@ func parseFile(file string) ([]Object, error) {
 	}
 
 	docs := strings.Split(string(data), "---\n")
-	var objects []Object
+	var objects []openapi.Document
 
 	for _, doc := range docs {
 		if strings.TrimSpace(doc) == "" {
 			continue
 		}
 
-		var obj Object
+		var obj openapi.Document
 		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
 			return nil, fmt.Errorf("failed to parse document: %v", err)
 		}
@@ -120,20 +106,12 @@ func parseFile(file string) ([]Object, error) {
 	return objects, nil
 }
 
-func getClient() (proto.DocumentServiceClient, *grpc.ClientConn) {
-	conn, err := grpc.Dial(address, grpc.WithInsecure())
+func getClient() (*openapi.ClientWithResponses, error) {
+	client, err := openapi.NewClientWithResponses(address)
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		return nil, fmt.Errorf("failed to create client: %v", err)
 	}
-	return proto.NewDocumentServiceClient(conn), conn
-}
-
-func getReactorClient() (proto.ReactorServiceClient, *grpc.ClientConn) {
-	conn, err := grpc.Dial(address, grpc.WithInsecure())
-	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
-	}
-	return proto.NewReactorServiceClient(conn), conn
+	return client, nil
 }
 
 func put(cmd *cobra.Command, args []string) {
@@ -142,30 +120,22 @@ func put(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 
-	client, conn := getClient()
-	defer conn.Close()
+	client, err := getClient()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	for _, obj := range objects {
-		val, err := structpb.NewStruct(obj.Val)
-		if err != nil {
-			log.Fatalf("Failed to convert value: %v", err)
-		}
-
-		doc := &proto.Document{
-			Model:   obj.Model,
-			Id:      obj.ID,
-			Val:     val,
-			Version: obj.Version,
-		}
-
-		resp, err := client.PutDocument(context.Background(), &proto.PutDocumentRequest{
-			Document: doc,
-		})
+		resp, err := client.PutDocumentWithResponse(context.Background(), obj)
 		if err != nil {
 			log.Fatalf("Failed to put document: %v", err)
 		}
 
-		fmt.Println(resp.Path)
+		if resp.JSON200 == nil {
+			log.Fatalf("Unexpected response: %v", resp.StatusCode())
+		}
+
+		fmt.Println(resp.JSON200.Path)
 	}
 }
 
@@ -176,67 +146,42 @@ func get(cmd *cobra.Command, args []string) {
 	}
 	model, id := parts[0], parts[1]
 
-	client, conn := getClient()
-	defer conn.Close()
+	client, err := getClient()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	resp, err := client.GetDocument(context.Background(), &proto.GetDocumentRequest{
-		Model: model,
-		Id:    id,
-	})
+	resp, err := client.GetDocumentWithResponse(context.Background(), model, id)
 	if err != nil {
 		log.Fatalf("Failed to get document: %v", err)
 	}
 
-	obj := Object{
-		Model:   resp.Model,
-		ID:      resp.Id,
-		Version: resp.Version,
-		Val:     resp.Val.AsMap(),
-		Status:  resp.Status.AsMap(),
+	if resp.JSON200 == nil {
+		log.Fatalf("Unexpected response: %v", resp.StatusCode())
 	}
 
-	if resp.History != nil {
-		obj.History = &History{
-			Created: resp.History.Created.AsTime(),
-			Updated: resp.History.Updated.AsTime(),
-		}
-	}
-
-	enc := yaml.NewEncoder(os.Stdout)
-	enc.SetIndent(2)
-	if err := enc.Encode(obj); err != nil {
+	enc, err := yaml.Marshal(resp.JSON200)
+	if err != nil {
 		log.Fatalf("Failed to encode as YAML: %v", err)
 	}
+	os.Stdout.Write(enc)
 }
 
-func parseFilter(arg string) *proto.Filter {
-	filter := &proto.Filter{}
+func parseFilter(arg string) openapi.Filter {
+	filter := openapi.Filter{}
 
-	// Check for comparison operators
-	if strings.Contains(arg, "=") {
-		parts := strings.Split(arg, "=")
-		val, err := structpb.NewValue(parts[1])
-		if err != nil {
-			log.Fatalf("Failed to parse value: %v", err)
-		}
-		filter.Key = parts[0]
-		filter.Condition = &proto.Filter_Equal{Equal: val}
-	} else if strings.Contains(arg, ">") {
-		parts := strings.Split(arg, ">")
-		val, err := structpb.NewValue(parts[1])
-		if err != nil {
-			log.Fatalf("Failed to parse value: %v", err)
-		}
-		filter.Key = parts[0]
-		filter.Condition = &proto.Filter_Greater{Greater: val}
-	} else if strings.Contains(arg, "<") {
-		parts := strings.Split(arg, "<")
-		val, err := structpb.NewValue(parts[1])
-		if err != nil {
-			log.Fatalf("Failed to parse value: %v", err)
-		}
-		filter.Key = parts[0]
-		filter.Condition = &proto.Filter_Less{Less: val}
+	if a, b, ok := strings.Cut(arg, "="); ok {
+		bi := any(b)
+		filter.Key = a
+		filter.Equal = &bi
+	} else if a, b, ok := strings.Cut(arg, ">"); ok {
+		bi := any(b)
+		filter.Key = a
+		filter.Greater = &bi
+	} else if a, b, ok := strings.Cut(arg, "<"); ok {
+		bi := any(b)
+		filter.Key = a
+		filter.Less = &bi
 	} else {
 		filter.Key = arg
 	}
@@ -245,75 +190,113 @@ func parseFilter(arg string) *proto.Filter {
 }
 
 func search(cmd *cobra.Command, args []string) {
-	client, conn := getClient()
-	defer conn.Close()
+	client, err := getClient()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	var filters []*proto.Filter
+	var filters []openapi.Filter
 	for _, arg := range args[1:] {
 		filters = append(filters, parseFilter(arg))
 	}
 
-	resp, err := client.SearchDocuments(context.Background(), &proto.SearchRequest{
+	req := openapi.SearchRequest{
 		Model:   args[0],
-		Filters: filters,
-	})
+		Filters: &filters,
+	}
+
+	resp, err := client.SearchDocumentsWithResponse(context.Background(), req)
 	if err != nil {
 		log.Fatalf("Failed to search documents: %v", err)
 	}
 
-	for _, id := range resp.Ids {
-		fmt.Printf("%s/%s\n", args[0], id)
+	if resp.JSON200 == nil {
+		log.Fatalf("Unexpected response: %v", resp.StatusCode())
+	}
+
+	if resp.JSON200.Ids != nil {
+		for _, id := range *resp.JSON200.Ids {
+			fmt.Printf("%s/%s\n", args[0], id)
+		}
 	}
 }
 
 func react(cmd *cobra.Command, args []string) {
-	client, conn := getReactorClient()
-	defer conn.Close()
+	// Convert HTTP URL to WebSocket URL
+	wsURL := strings.Replace(address, "http://", "ws://", 1)
+	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
+	wsURL += "/v1/reactor"
 
-	var filters []*proto.Filter
-	for _, arg := range args[1:] {
-		filters = append(filters, parseFilter(arg))
-	}
-
-	bidi, err := client.ReactorLoop(cmd.Context())
+	// Connect to WebSocket
+	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
-		log.Fatalf("Failed to sub: %v", err)
+		log.Fatalf("Failed to connect to WebSocket: %v", err)
+	}
+	defer c.Close()
+
+	// Send start message
+	start := openapi.ReactorStart{
+		Id: args[0],
 	}
 
-	bidi.Send(&proto.ReactorIn{
-		Kind: &proto.ReactorIn_Start{
-			Start: &proto.ReactorStart{
-				Id: args[0],
-			},
-		},
-	})
+	var reactorIn openapi.ReactorIn
+	err = reactorIn.FromReactorStart(start)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = c.WriteJSON(reactorIn)
+	if err != nil {
+		log.Fatalf("Failed to send start message: %v", err)
+	}
 
 	for {
-		m, err := bidi.Recv()
-		if err == io.EOF {
+		var reactorOut openapi.ReactorOut
+		err := c.ReadJSON(&reactorOut)
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("WebSocket read error: %v", err)
+			}
 			return
 		}
-		if err != nil {
-			panic(err)
+
+		fmt.Println(reactorOut)
+
+		if reactorOut.Activation != nil {
+			fmt.Printf("Received activation: %v\n", reactorOut.Activation)
+
+			// Simulate work with periodic working messages
+			for i := 0; i < 5; i++ {
+				time.Sleep(time.Millisecond * 500)
+
+				var working openapi.ReactorIn
+				err = working.FromReactorWorking(openapi.ReactorWorking{})
+				if err != nil {
+					log.Printf("Failed to create working message: %v", err)
+					return
+				}
+
+				err = c.WriteJSON(working)
+				if err != nil {
+					log.Printf("Failed to send working message: %v", err)
+					return
+				}
+			}
+
+			// Send done message
+			var doneMsg openapi.ReactorIn
+			err = doneMsg.FromReactorDone(openapi.ReactorDone{})
+			if err != nil {
+				log.Printf("Failed to create done message: %v", err)
+				return
+			}
+
+			err = c.WriteJSON(doneMsg)
+			if err != nil {
+				log.Printf("Failed to send done message: %v", err)
+				return
+			}
 		}
-		fmt.Printf("%v\n", m)
-
-		// simulate long work
-		for i := 0; i < 5; i++ {
-			time.Sleep(time.Millisecond * 500)
-			bidi.Send(&proto.ReactorIn{
-				Kind: &proto.ReactorIn_Working{
-					Working: &proto.ReactorWorking{},
-				},
-			})
-		}
-
-		bidi.Send(&proto.ReactorIn{
-			Kind: &proto.ReactorIn_Done{
-				Done: &proto.ReactorDone{},
-			},
-		})
-
 	}
 }
 
@@ -324,24 +307,19 @@ func edit(cmd *cobra.Command, args []string) {
 	}
 	model, id := parts[0], parts[1]
 
-	client, conn := getClient()
-	defer conn.Close()
+	client, err := getClient()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Get the document first
-	resp, err := client.GetDocument(context.Background(), &proto.GetDocumentRequest{
-		Model: model,
-		Id:    id,
-	})
+	resp, err := client.GetDocumentWithResponse(context.Background(), model, id)
 	if err != nil {
 		log.Fatalf("Failed to get document: %v", err)
 	}
 
-	obj := Object{
-		Model:   resp.Model,
-		ID:      resp.Id,
-		Val:     resp.Val.AsMap(),
-		Version: resp.Version,
-		Status:  resp.Status.AsMap(),
+	if resp.JSON200 == nil {
+		log.Fatalf("Unexpected response: %v", resp.StatusCode())
 	}
 
 	// Create temporary file
@@ -352,11 +330,11 @@ func edit(cmd *cobra.Command, args []string) {
 	defer os.Remove(tmpfile.Name())
 
 	// Write object to temp file
-	enc := yaml.NewEncoder(tmpfile)
-	enc.SetIndent(2)
-	if err := enc.Encode(obj); err != nil {
+	enc, err := yaml.Marshal(resp.JSON200)
+	if err != nil {
 		log.Fatal(err)
 	}
+	tmpfile.Write(enc)
 	tmpfile.Close()
 
 	// Get file info for later comparison

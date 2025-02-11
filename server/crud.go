@@ -1,184 +1,205 @@
 package server
 
 import (
-	pb "apogy/proto"
-	"context"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/labstack/echo/v4"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"apogy/api/go"
+	"bytes"
+	"encoding/json"
 )
 
-func (s *server) PutDocument(ctx context.Context, req *pb.PutDocumentRequest) (*pb.PutDocumentResponse, error) {
+func (s *server) PutDocument(c echo.Context) error {
 
-	err := validateMeta(req.Document)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	var doc openapi.Document
+	if err := c.Bind(&doc); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 	}
 
-	var schema *pb.Document
+	if err := s.validateMeta(&doc); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 
-	if req.Document.Model == "Model" {
-		err := s.validateSchemaSchema(ctx, req.Document)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "validation error: %s", err)
+	var schema *openapi.Document
+	var err error
+
+	switch doc.Model {
+	case "Model":
+		if err := s.validateSchemaSchema(c.Request().Context(), &doc); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
 		}
-	} else if req.Document.Model == "Reactor" {
-		err := s.validateReactorSchema(ctx, req.Document)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "validation error: %s", err)
+	case "Reactor":
+		if err := s.validateReactorSchema(c.Request().Context(), &doc); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
 		}
-	} else {
-		schema, err = s.validateObjectSchema(ctx, req.Document)
+	default:
+		schema, err = s.validateObjectSchema(c.Request().Context(), &doc)
 		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "validation error: %s", err)
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
 		}
 	}
 
 	w2 := s.kv.Write()
 	defer w2.Close()
 
-	path, err := safeDBPath(req.Document.Model, req.Document.Id)
+	path, err := safeDBPath(doc.Model, doc.Id)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	// Set history timestamps
 	now := time.Now()
-	req.Document.History = &pb.History{
-		Created: timestamppb.New(now),
-		Updated: timestamppb.New(now),
+	doc.History = &openapi.History{
+		Created: &now,
+		Updated: &now,
 	}
 
-	if req.Document.Version != nil {
-
-		bytes, err := w2.Get(ctx, []byte(path))
+	if doc.Version != nil {
+		// Handle versioned updates
+		bytes, err := w2.Get(c.Request().Context(), []byte(path))
 		if err != nil {
 			if !strings.Contains(err.Error(), "not exist") {
-				return nil, fmt.Errorf("tikv error %v", err)
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 			}
-		} else {
-			var original pb.Document
-			err = proto.Unmarshal(bytes, &original)
-			if err != nil {
-				return nil, fmt.Errorf("unmarshal error: %v", err)
+		} else if len(bytes) > 0 {
+			var original openapi.Document
+			if err := json.Unmarshal(bytes, &original); err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
-			deleteIndex(w2, &original)
+			if err := s.deleteIndex(w2, &original); err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
+			}
 
 			if original.History != nil {
-				req.Document.History.Created = original.History.Created
+				doc.History.Created = original.History.Created
 			}
 
-			if reflect.DeepEqual(original.Val, req.Document.Val) {
-				return &pb.PutDocumentResponse{
-					Path: req.Document.Model + "/" + req.Document.Id,
-				}, nil
+			if reflect.DeepEqual(original.Val, doc.Val) {
+				return c.JSON(http.StatusOK, openapi.PutDocumentOK{
+					Path: doc.Model + "/" + doc.Id,
+				})
 			}
 
-			if original.Version != nil && req.Document.Version != nil {
-				if *original.Version != *req.Document.Version {
-					return nil, status.Errorf(codes.AlreadyExists, "version is out of date")
+			if original.Version != nil && doc.Version != nil {
+				if *original.Version != *doc.Version {
+					return echo.NewHTTPError(http.StatusConflict, "version is out of date")
 				}
 			}
-
 		}
 	} else {
-
-		// user doesnt want versioning. use a separate reader so we can ignore conflicts
+		// Handle non-versioned updates
 		r := s.kv.Read()
-		bytes, err := r.Get(ctx, []byte(path))
+		bytes, err := r.Get(c.Request().Context(), []byte(path))
 		r.Close()
 		if err != nil {
 			if !strings.Contains(err.Error(), "not exist") {
-				return nil, fmt.Errorf("tikv error %v", err)
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 			}
-		} else {
-			var original pb.Document
-			err = proto.Unmarshal(bytes, &original)
-			if err != nil {
-				return nil, fmt.Errorf("unmarshal error: %v", err)
+		} else if len(bytes) > 0 {
+			var original openapi.Document
+			if err := json.Unmarshal(bytes, &original); err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
-			deleteIndex(w2, &original)
+
+			if err := s.deleteIndex(w2, &original); err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
+			}
 
 			if original.History != nil {
-				req.Document.History.Created = original.History.Created
+				doc.History.Created = original.History.Created
 			}
 
-			req.Document.Version = original.Version
-
+			doc.Version = original.Version
 		}
 	}
 
-	if req.Document.Version == nil {
-		var nuInt = uint64(0)
-		req.Document.Version = &nuInt
+	// Handle versioning
+	if doc.Version == nil {
+		version := uint64(0)
+		doc.Version = &version
 	}
-	*req.Document.Version += 1
+	*doc.Version++
 
-	if req.Document.Model == "Reactor" {
-		err = s.ensureReactor(ctx, req.Document)
-		if err != nil {
-			return nil, err
+	// Special handling for Reactor type
+	if doc.Model == "Reactor" {
+		if err := s.ensureReactor(c.Request().Context(), &doc); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	}
 
-	bytes, err := proto.Marshal(req.Document)
+	// Marshal document
+	bytes, err := json.Marshal(doc)
 	if err != nil {
-		return nil, fmt.Errorf("marshal error: %v", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("marshal error: %v", err))
 	}
 
+	// Store document and update indices
 	w2.Put([]byte(path), bytes)
 
-	err = createIndex(w2, req.Document)
-	if err != nil {
-		return nil, err
+	if err := s.createIndex(w2, &doc); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	err = w2.Commit(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("tikv error: %v", err)
+	if err := w2.Commit(c.Request().Context()); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 	}
 
+	// Handle schema reconciliation
 	if schema != nil {
-		err = s.reconcile(ctx, schema, req.Document)
-		if err != nil {
-			return nil, err
+		if err := s.reconcile(c.Request().Context(), schema, &doc); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 	}
 
-	return &pb.PutDocumentResponse{
-		Path: req.Document.Model + "/" + req.Document.Id,
-	}, nil
+	return c.JSON(http.StatusOK, openapi.PutDocumentOK{
+		Path: doc.Model + "/" + doc.Id,
+	})
 }
 
-func (s *server) GetDocument(ctx context.Context, req *pb.GetDocumentRequest) (*pb.Document, error) {
+func (s *server) GetDocument(c echo.Context, model string, id string) error {
 
-	path, err := safeDBPath(req.Model, req.Id)
+	path, err := safeDBPath(model, id)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	r := s.kv.Read()
 	defer r.Close()
 
-	bytes, err := r.Get(ctx, []byte(path))
+	bytes, err := r.Get(c.Request().Context(), []byte(path))
 	if err != nil {
-		return nil, status.Error(codes.NotFound, err.Error())
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 	if bytes == nil {
-		return nil, status.Error(codes.NotFound, "not found")
+		return echo.NewHTTPError(http.StatusNotFound, "document not found")
 	}
 
-	var doc = new(pb.Document)
-	err = proto.Unmarshal(bytes, doc)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "unmarshal error")
+	var doc openapi.Document
+	if err := json.Unmarshal(bytes, &doc); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 	}
 
-	return doc, nil
+	return c.JSON(http.StatusOK, doc)
+}
+
+// Helper functions
+
+func (s *server) validateMeta(doc *openapi.Document) error {
+	if doc.Model == "" || doc.Id == "" {
+		return status.Error(codes.InvalidArgument, "model and id are required")
+	}
+
+	if bytes.Contains([]byte(doc.Model), []byte{0xff}) || bytes.Contains([]byte(doc.Id), []byte{0xff}) {
+		return status.Error(codes.InvalidArgument, "invalid utf8 string in model or id")
+	}
+
+	return nil
 }

@@ -1,21 +1,18 @@
 package server
 
 import (
-	bus "apogy/bus"
-	kv "apogy/kv"
-	pb "apogy/proto"
-	"context"
+	"apogy/api/go"
+	"apogy/bus"
+	"apogy/kv"
 	"fmt"
 	"log/slog"
-	"net"
+	"net/http"
 	"time"
 
-	"google.golang.org/grpc"
+	"github.com/labstack/echo/v4"
 )
 
 type server struct {
-	pb.UnimplementedDocumentServiceServer
-	pb.UnimplementedReactorServiceServer
 	kv kv.KV
 	bs bus.Bus
 }
@@ -28,7 +25,6 @@ func newServer(kv kv.KV, bs bus.Bus) *server {
 }
 
 func Main() {
-
 	kv, err := kv.NewPebble()
 	if err != nil {
 		panic(err)
@@ -40,35 +36,42 @@ func Main() {
 	}
 
 	s := newServer(kv, st)
+	e := echo.New()
 
-	go func() {
-		lis, err := net.Listen("tcp", ":5051")
-		if err != nil {
-			panic(fmt.Sprintf("failed to listen: %v", err))
-		}
+	// Add logging middleware
+	e.Use(loggingMiddleware)
 
-		grpcServer := grpc.NewServer(
-			grpc.UnaryInterceptor(LoggingInterceptor),
-		)
-		pb.RegisterDocumentServiceServer(grpcServer, s)
-		pb.RegisterReactorServiceServer(grpcServer, s)
+	// Register handlers
+	openapi.RegisterHandlers(e, s)
 
-		fmt.Println("Starting gRPC server on :5051")
-		if err := grpcServer.Serve(lis); err != nil {
-			panic(fmt.Sprintf("failed to serve: %v", err))
-		}
-	}()
-
-	fmt.Println("Starting HTTP gateway server on :5052")
-	if err := GatewayRun(); err != nil {
-		panic(fmt.Sprintf("failed to serve gateway: %v", err))
+	// Start server
+	fmt.Println("Starting Echo server on :5052")
+	if err := e.Start(":5052"); err != http.ErrServerClosed {
+		panic(fmt.Sprintf("failed to serve: %v", err))
 	}
 }
 
-func LoggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	start := time.Now()
-	h, err := handler(ctx, req)
+// Logging middleware
+func loggingMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		start := time.Now()
 
-	slog.Info("grpc", "method", info.FullMethod, "duration", time.Since(start), "err", err)
-	return h, err
+		err := next(c)
+		if err != nil {
+			c.Error(err)
+		}
+
+		req := c.Request()
+		res := c.Response()
+
+		slog.Info("http",
+			"method", req.Method,
+			"path", req.URL.Path,
+			"status", res.Status,
+			"duration", time.Since(start),
+			"error", err,
+		)
+
+		return err
+	}
 }

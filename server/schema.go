@@ -1,26 +1,25 @@
 package server
 
 import (
-	pb "apogy/proto"
+	"apogy/api/go"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"strings"
 
+	"github.com/labstack/echo/v4"
 	"github.com/santhosh-tekuri/jsonschema/v5"
+	"net/http"
 )
 
-func (s *server) validateSchemaSchema(ctx context.Context, object *pb.Document) error {
+func (s *server) validateSchemaSchema(ctx context.Context, object *openapi.Document) error {
 
 	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
 		return r == '.'
 	})
 	if len(idparts) < 3 {
-		return status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain , like com.example.Book")
+		return echo.NewHTTPError(http.StatusBadRequest, "validation error (id): must be a domain , like com.example.Book")
 	}
 
 	compiler := jsonschema.NewCompiler()
@@ -48,7 +47,7 @@ func (s *server) validateSchemaSchema(ctx context.Context, object *pb.Document) 
 	return nil
 }
 
-func (s *server) validateObjectSchema(ctx context.Context, object *pb.Document) (*pb.Document, error) {
+func (s *server) validateObjectSchema(ctx context.Context, object *openapi.Document) (*openapi.Document, error) {
 
 	r := s.kv.Read()
 	defer r.Close()
@@ -62,8 +61,8 @@ func (s *server) validateObjectSchema(ctx context.Context, object *pb.Document) 
 		return nil, fmt.Errorf("cannot load model '%s'", object.Model)
 	}
 
-	var schemaObj = new(pb.Document)
-	err = proto.Unmarshal(schemaData, schemaObj)
+	var schemaObj = new(openapi.Document)
+	err = json.Unmarshal(schemaData, schemaObj)
 	if err != nil {
 		return nil, fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}

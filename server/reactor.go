@@ -1,87 +1,38 @@
 package server
 
 import (
-	pb "apogy/proto"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
-	"google.golang.org/grpc"
+	"github.com/gorilla/websocket"
+	"github.com/labstack/echo/v4"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
+
+	"apogy/api/go"
 )
 
-func (s *server) reconcile(ctx context.Context, schema *pb.Document, doc *pb.Document) error {
-
-	if schema.Val.Fields["reactors"] == nil {
-		return nil
-	}
-
-	rol, ok := schema.Val.Fields["reactors"].Kind.(*structpb.Value_ListValue)
-	if !ok {
-		return nil
-	}
-
-	for _, ro := range rol.ListValue.Values {
-		reactorId, ok := ro.Kind.(*structpb.Value_StringValue)
-		if !ok {
-			continue
-		}
-
-		activation := pb.ReactorActivation{
-			Id:      doc.Id,
-			Model:   doc.Model,
-			Version: *doc.Version,
-		}
-
-		actBytes, err := proto.Marshal(&activation)
-		if err != nil {
-			return err
-		}
-
-		reactorKVPath, err := reactorKVPath(reactorId.StringValue, doc.Model, doc.Id)
-		if err != nil {
-			continue
-		}
-
-		w := s.kv.Write()
-		w.Put(reactorKVPath, actBytes)
-		err = w.Commit(ctx)
-		if err != nil {
-			return err
-		}
-
-		s.bs.Send("reactor-notification", actBytes)
-
-		//FIXME: this needs go to the next reactor if the previous one is completed
-
-		break
-	}
-
-	return nil
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // You might want to implement proper origin checking
+	},
 }
 
-func (s *server) validateReactorSchema(ctx context.Context, object *pb.Document) error {
-	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
-		return r == '.'
-	})
-	if len(idparts) < 3 {
-		return status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain , like com.example.Book")
+// ReactorLoop handles the WebSocket connection for reactor operations
+func (s *server) ReactorLoop(c echo.Context) error {
+	ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+	if err != nil {
+		return err
 	}
-	return nil
-}
-
-func (s *server) ensureReactor(ctx context.Context, object *pb.Document) error {
-	return nil
-}
-
-func (s *server) ReactorLoop(bidi grpc.BidiStreamingServer[pb.ReactorIn, pb.ReactorOut]) error {
+	defer ws.Close()
 
 	var cleanMe = make(map[string]func())
 	defer func() {
@@ -90,54 +41,49 @@ func (s *server) ReactorLoop(bidi grpc.BidiStreamingServer[pb.ReactorIn, pb.Reac
 		}
 	}()
 
-	recvch := make(chan *pb.ReactorIn)
-	go func() {
-		defer close(recvch)
-		for {
-			m, err := bidi.Recv()
-			if err != nil {
-				slog.Warn("ReactorLoop.bidi.Recv()", "err", err)
-				return
-			}
-			recvch <- m
-		}
-	}()
+	// Channel for receiving messages from WebSocket
+	recvch := make(chan any)
+	go s.handleWebSocketReceive(ws, recvch)
 
-	// await start message
-
-	m := <-recvch
-	start, ok := m.Kind.(*pb.ReactorIn_Start)
+	// Wait for start message
+	startMsg := <-recvch
+	start, ok := startMsg.(openapi.ReactorStart)
 	if !ok {
-		return fmt.Errorf("expected Start message")
+		return fmt.Errorf("expected Start message, got %t", startMsg)
 	}
 
-	reactorIDB, err := safeDB(start.Start.Id)
+	reactorIDB, err := safeDB(start.Id)
 	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	var tripReactor = func(act *pb.ReactorActivation) error {
+	// Define reactor trip function
+	tripReactor := func(act *openapi.ReactorActivation) error {
+		if act.Id == "" || act.Model == "" {
+			return fmt.Errorf("invalid activation")
+		}
 
-		reactorKVPath, err := reactorKVPath(start.Start.Id, act.Model, act.Id)
+		reactorKVPath, err := reactorKVPath(start.Id, act.Model, act.Id)
 		if err != nil {
 			return nil
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
+
 		r := s.kv.Read()
 		actBytes, err := r.Get(ctx, reactorKVPath)
 		r.Close()
 
-		var activation = new(pb.ReactorActivation)
+		var activation openapi.ReactorActivation
 		if err == nil {
-			err = proto.Unmarshal(actBytes, activation)
+			err = json.Unmarshal(actBytes, &activation)
 		}
 		if err != nil || act.Id != activation.Id || act.Model != activation.Model {
-
-			slog.Warn("BUG: activation loaded from kv didnt match caller",
+			slog.Warn("BUG: activation loaded from kv didn't match caller",
 				"err", err,
-				"expectedId", act.Id, "loadedID", activation.Id)
+				"expectedId", act.Id, "loadedID", activation.Id,
+				"expectedModel", act.Model, "loadedModel", activation.Model)
 
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
@@ -149,7 +95,7 @@ func (s *server) ReactorLoop(bidi grpc.BidiStreamingServer[pb.ReactorIn, pb.Reac
 			return nil
 		}
 
-		lockkey := "r/" + start.Start.Id + "/" + activation.Model + "/" + activation.Id
+		lockkey := fmt.Sprintf("r/%s/%s/%s", start.Id, activation.Model, activation.Id)
 
 		lock, err := s.bs.Lock(context.Background(), lockkey, time.Second)
 		if err != nil {
@@ -163,25 +109,30 @@ func (s *server) ReactorLoop(bidi grpc.BidiStreamingServer[pb.ReactorIn, pb.Reac
 		defer cleanup()
 		cleanMe[lockkey] = cleanup
 
-		bidi.Send(&pb.ReactorOut{
-			Kind: &pb.ReactorOut_Activation{
-				Activation: activation,
-			},
-		})
+		// Send activation through WebSocket
+		response := openapi.ReactorOut{
+			Activation: &activation,
+		}
+		if err := ws.WriteJSON(response); err != nil {
+			return err
+		}
 
 		err = func() error {
 			for {
 				select {
-				case m, ok := <-recvch:
-					if !ok || m == nil || m.Kind == nil {
-						return io.EOF
+				case msg, ok := <-recvch:
+					if !ok {
+						return fmt.Errorf("websocket closed")
 					}
-					switch m.Kind.(type) {
-					case *pb.ReactorIn_Working:
+
+					switch msg.(type) {
+					case openapi.ReactorWorking:
 						lock.KeepAlive()
-					case *pb.ReactorIn_Done:
+						continue
+					case openapi.ReactorDone:
 						return nil
 					}
+
 				case <-lock.Done():
 					return status.Error(codes.DeadlineExceeded, "keepalive deadline expired")
 				}
@@ -203,7 +154,7 @@ func (s *server) ReactorLoop(bidi grpc.BidiStreamingServer[pb.ReactorIn, pb.Reac
 		if bytes.Compare(b2, actBytes) != 0 {
 			slog.Info("reactor trip was working on outdated version")
 			w.Rollback()
-			s.bs.Send("reactor-notification", b2)
+			s.bs.Send("reactor-activate-"+start.Id, b2)
 			return nil
 		}
 
@@ -211,11 +162,10 @@ func (s *server) ReactorLoop(bidi grpc.BidiStreamingServer[pb.ReactorIn, pb.Reac
 		w.Commit(ctx)
 
 		return nil
-
 	}
 
-	var replay = func() error {
-
+	// Define replay function
+	replay := func() error {
 		itStart := []byte("r\xff")
 		itStart = append(itStart, reactorIDB...)
 		itStop := bytes.Clone(itStart)
@@ -236,60 +186,136 @@ func (s *server) ReactorLoop(bidi grpc.BidiStreamingServer[pb.ReactorIn, pb.Reac
 			id := string(idd[len(idd)-2])
 			model := string(idd[len(idd)-3])
 
-			var activation = new(pb.ReactorActivation)
-			err := proto.Unmarshal(kv.V, activation)
-			if err != nil || id != activation.Id || model != activation.Model {
+			var activation openapi.ReactorActivation
+			err := json.Unmarshal(kv.V, &activation)
+			if err != nil || activation.Id != id || activation.Model != model {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 				w := s.kv.Write()
 				w.Del(kv.K)
 				w.Commit(ctx)
+				continue
 			}
 
-			err = tripReactor(activation)
+			err = tripReactor(&activation)
 			if err != nil {
 				slog.Warn("reactor trip", "err", err)
 				return err
 			}
-
 		}
 		r.Close()
 		return nil
 	}
 
+	// Main event loop
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 
 	for {
 		select {
 		case <-t.C:
-			err = replay()
-			if err != nil {
+			if err := replay(); err != nil {
 				return err
 			}
-		case _, ok := <-recvch:
+
+		case msg, ok := <-recvch:
 			if !ok {
 				return nil
 			}
-		case b2 := <-s.bs.Recv("reactor-notification"):
+			_ = msg
+
+		case b2 := <-s.bs.Recv("reactor-activate-" + start.Id):
 			if b2 == nil {
 				slog.Warn("bus error", "b", b2)
 				continue
 			}
-			var activation = new(pb.ReactorActivation)
-			err = proto.Unmarshal(b2, activation)
-			if err != nil {
+			var activation openapi.ReactorActivation
+			if err := json.Unmarshal(b2, &activation); err != nil {
 				slog.Warn("bus error", "err", err)
 				continue
 			}
-			err = tripReactor(activation)
-			if err != nil {
+			if err := tripReactor(&activation); err != nil {
 				slog.Warn("reactor trip", "err", err)
 				return err
 			}
 		}
-
 	}
+}
+
+func (s *server) handleWebSocketReceive(ws *websocket.Conn, recvch chan any) {
+	defer close(recvch)
+	for {
+		var msg openapi.ReactorIn
+		if err := ws.ReadJSON(&msg); err != nil {
+			slog.Warn("WebSocket read error", "err", err)
+			return
+		}
+		v, err := msg.ValueByDiscriminator()
+		if err != nil {
+			slog.Warn("WebSocket read error", "err", err)
+			return
+		}
+		recvch <- v
+	}
+}
+
+func (s *server) reconcile(ctx context.Context, schema *openapi.Document, doc *openapi.Document) error {
+	if schema.Val == nil || (*schema.Val)["reactors"] == nil {
+		return nil
+	}
+
+	reactors, ok := (*schema.Val)["reactors"].([]interface{})
+	if !ok {
+		return nil
+	}
+
+	for _, r := range reactors {
+		reactorID, ok := r.(string)
+		if !ok {
+			continue
+		}
+
+		activation := openapi.ReactorActivation{
+			Id:      doc.Id,
+			Model:   doc.Model,
+			Version: *doc.Version,
+		}
+
+		actBytes, err := json.Marshal(&activation)
+		if err != nil {
+			return err
+		}
+
+		reactorKVPath, err := reactorKVPath(reactorID, doc.Model, doc.Id)
+		if err != nil {
+			continue
+		}
+
+		w := s.kv.Write()
+		w.Put(reactorKVPath, actBytes)
+		if err := w.Commit(ctx); err != nil {
+			return err
+		}
+
+		s.bs.Send("reactor-activate-"+reactorID, actBytes)
+		break
+	}
+
+	return nil
+}
+
+func (s *server) validateReactorSchema(ctx context.Context, object *openapi.Document) error {
+	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
+		return r == '.'
+	})
+	if len(idparts) < 3 {
+		return status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain, like com.example.Book")
+	}
+	return nil
+}
+
+func (s *server) ensureReactor(ctx context.Context, object *openapi.Document) error {
+	return nil
 }
 
 func reactorKVPath(reactorID string, model string, docID string) ([]byte, error) {
