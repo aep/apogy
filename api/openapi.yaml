@@ -38,6 +38,16 @@ paths:
             schema:
               $ref: '#/components/schemas/Document'
       responses:
+        '400':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
         '200':
           description: Successfully stored document
           content:
@@ -160,54 +170,31 @@ components:
 
     ReactorIn:
       type: object
-      discriminator:
-        propertyName: kind
-        mapping:
-          start:    '#/components/schemas/ReactorStart'
-          working:  '#/components/schemas/ReactorWorking'
-          done:     '#/components/schemas/ReactorDone'
-      oneOf:
-        - $ref: '#/components/schemas/ReactorStart'
-        - $ref: '#/components/schemas/ReactorWorking'
-        - $ref: '#/components/schemas/ReactorDone'
+      properties:
+        start:
+          $ref: '#/components/schemas/ReactorStart'
+        working:
+          $ref: '#/components/schemas/ReactorWorking'
+        done:
+          $ref: '#/components/schemas/ReactorDone'
 
 
     ReactorStart:
       type: object
       required:
-        - kind
         - id
       properties:
-        kind:
-          type: string
-          enum: [start]
         id:
           type: string
 
     ReactorWorking:
       type: object
-      required:
-        - kind
-      properties:
-        kind:
-          type: string
-          enum: [working]
 
     ReactorDone:
       type: object
-      required:
-        - kind
-      properties:
-        kind:
-          type: string
-          enum: [done]
 
     ReactorOut:
       type: object
-      discriminator:
-        propertyName: kind
-        mapping:
-          activation:    '#/components/schemas/ReactorActivation'
       properties:
         activation:
           $ref: '#/components/schemas/ReactorActivation'
@@ -215,14 +202,10 @@ components:
     ReactorActivation:
       type: object
       required:
-        - kind
         - model
         - id
         - version
       properties:
-        kind:
-          type: string
-          enum: [activation]
         model:
           type: string
         id:

@@ -5,5 +5,9 @@
 import type { ReactorDone } from './ReactorDone';
 import type { ReactorStart } from './ReactorStart';
 import type { ReactorWorking } from './ReactorWorking';
-export type ReactorIn = (ReactorStart | ReactorWorking | ReactorDone);
+export type ReactorIn = {
+    start?: ReactorStart;
+    working?: ReactorWorking;
+    done?: ReactorDone;
+};
 

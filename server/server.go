@@ -4,6 +4,7 @@ import (
 	"apogy/api/go"
 	"apogy/bus"
 	"apogy/kv"
+	"apogy/reactor"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,12 +16,14 @@ import (
 type server struct {
 	kv kv.KV
 	bs bus.Bus
+	ra *reactor.Reactor
 }
 
 func newServer(kv kv.KV, bs bus.Bus) *server {
 	return &server{
 		kv: kv,
 		bs: bs,
+		ra: reactor.New(),
 	}
 }
 

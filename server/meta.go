@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-func validateMeta(doc *openapi.Document) error {
+func (s *server) validateMeta(doc *openapi.Document) error {
 
 	if len(doc.Model) < 1 {
 		return fmt.Errorf("validation error: /model must not be empty")

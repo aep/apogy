@@ -1,10 +1,17 @@
 ---
 model: Reactor
-id: com.example.MailUnroller
-
+id: com.example.MailTemplateValidator
+val:
+  validator: true
+  wasm: |
+    $ref: file://reactor/assemblyscript/validator.wasm
 ---
 model: Reactor
-id: com.example.MailSender
+id: com.example.MailTemplateUnroller
+val:
+  reconciler: true
+  wasm: |
+    $ref: file://reactor/assemblyscript/reconciler.wasm
 ---
 model: Model
 id: com.example.EmailTemplate
@@ -21,7 +28,8 @@ val:
     unrolled:
       type: boolean
   reactors:
-    - com.example.MailUnroller
+    - com.example.MailTemplateValidator
+    - com.example.MailTemplateUnroller
 ---
 model: Model
 id: com.example.Email
@@ -42,6 +50,6 @@ val:
   subject: you win big
   body: quadrillion us dolors just send us your SSN quick
   to:
-    - mikemikeson@example.com
+    - mikemikesone@xample.com
     - spam-me-daddy@example.com
 ---

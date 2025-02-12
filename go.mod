@@ -13,6 +13,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.10.0
+	github.com/tetratelabs/wazero v1.8.2
 	github.com/tikv/client-go/v2 v2.0.7
 	go.uber.org/zap v1.24.0
 	google.golang.org/grpc v1.70.0

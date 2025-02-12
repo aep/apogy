@@ -8,11 +8,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"apogy/api/go"
-	"bytes"
 	"encoding/json"
 )
 
@@ -54,12 +51,13 @@ func (s *server) PutDocument(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	// Set history timestamps
 	now := time.Now()
 	doc.History = &openapi.History{
 		Created: &now,
 		Updated: &now,
 	}
+
+	var old *openapi.Document
 
 	if doc.Version != nil {
 		// Handle versioned updates
@@ -69,27 +67,27 @@ func (s *server) PutDocument(c echo.Context) error {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 			}
 		} else if len(bytes) > 0 {
-			var original openapi.Document
-			if err := json.Unmarshal(bytes, &original); err != nil {
+			old = new(openapi.Document)
+			if err := json.Unmarshal(bytes, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
-			if err := s.deleteIndex(w2, &original); err != nil {
+			if err := s.deleteIndex(w2, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
 			}
 
-			if original.History != nil {
-				doc.History.Created = original.History.Created
+			if old.History != nil {
+				doc.History.Created = old.History.Created
 			}
 
-			if reflect.DeepEqual(original.Val, doc.Val) {
+			if reflect.DeepEqual(old.Val, doc.Val) {
 				return c.JSON(http.StatusOK, openapi.PutDocumentOK{
 					Path: doc.Model + "/" + doc.Id,
 				})
 			}
 
-			if original.Version != nil && doc.Version != nil {
-				if *original.Version != *doc.Version {
+			if old.Version != nil && doc.Version != nil {
+				if *old.Version != *doc.Version {
 					return echo.NewHTTPError(http.StatusConflict, "version is out of date")
 				}
 			}
@@ -104,44 +102,46 @@ func (s *server) PutDocument(c echo.Context) error {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 			}
 		} else if len(bytes) > 0 {
-			var original openapi.Document
-			if err := json.Unmarshal(bytes, &original); err != nil {
+			old = new(openapi.Document)
+			if err := json.Unmarshal(bytes, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
-			if err := s.deleteIndex(w2, &original); err != nil {
+			if err := s.deleteIndex(w2, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
 			}
 
-			if original.History != nil {
-				doc.History.Created = original.History.Created
+			if old.History != nil {
+				doc.History.Created = old.History.Created
 			}
 
-			doc.Version = original.Version
+			doc.Version = old.Version
 		}
 	}
 
-	// Handle versioning
 	if doc.Version == nil {
 		version := uint64(0)
 		doc.Version = &version
 	}
 	*doc.Version++
 
-	// Special handling for Reactor type
+	if schema != nil {
+		if err := s.validate(c.Request().Context(), schema, old, &doc); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+	}
+
 	if doc.Model == "Reactor" {
 		if err := s.ensureReactor(c.Request().Context(), &doc); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	}
 
-	// Marshal document
 	bytes, err := json.Marshal(doc)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("marshal error: %v", err))
 	}
 
-	// Store document and update indices
 	w2.Put([]byte(path), bytes)
 
 	if err := s.createIndex(w2, &doc); err != nil {
@@ -152,7 +152,6 @@ func (s *server) PutDocument(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 	}
 
-	// Handle schema reconciliation
 	if schema != nil {
 		if err := s.reconcile(c.Request().Context(), schema, &doc); err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -188,18 +187,4 @@ func (s *server) GetDocument(c echo.Context, model string, id string) error {
 	}
 
 	return c.JSON(http.StatusOK, doc)
-}
-
-// Helper functions
-
-func (s *server) validateMeta(doc *openapi.Document) error {
-	if doc.Model == "" || doc.Id == "" {
-		return status.Error(codes.InvalidArgument, "model and id are required")
-	}
-
-	if bytes.Contains([]byte(doc.Model), []byte{0xff}) || bytes.Contains([]byte(doc.Id), []byte{0xff}) {
-		return status.Error(codes.InvalidArgument, "invalid utf8 string in model or id")
-	}
-
-	return nil
 }

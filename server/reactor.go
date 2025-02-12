@@ -22,7 +22,8 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // You might want to implement proper origin checking
+		//TODO does this matter?
+		return true
 	},
 }
 
@@ -42,17 +43,16 @@ func (s *server) ReactorLoop(c echo.Context) error {
 	}()
 
 	// Channel for receiving messages from WebSocket
-	recvch := make(chan any)
+	recvch := make(chan openapi.ReactorIn)
 	go s.handleWebSocketReceive(ws, recvch)
 
 	// Wait for start message
 	startMsg := <-recvch
-	start, ok := startMsg.(openapi.ReactorStart)
-	if !ok {
-		return fmt.Errorf("expected Start message, got %t", startMsg)
+	if startMsg.Start == nil {
+		return fmt.Errorf("expected Start message, got %T", startMsg)
 	}
 
-	reactorIDB, err := safeDB(start.Id)
+	reactorIDB, err := safeDB(startMsg.Start.Id)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -63,7 +63,7 @@ func (s *server) ReactorLoop(c echo.Context) error {
 			return fmt.Errorf("invalid activation")
 		}
 
-		reactorKVPath, err := reactorKVPath(start.Id, act.Model, act.Id)
+		reactorKVPath, err := reactorKVPath(startMsg.Start.Id, act.Model, act.Id)
 		if err != nil {
 			return nil
 		}
@@ -95,7 +95,7 @@ func (s *server) ReactorLoop(c echo.Context) error {
 			return nil
 		}
 
-		lockkey := fmt.Sprintf("r/%s/%s/%s", start.Id, activation.Model, activation.Id)
+		lockkey := fmt.Sprintf("r/%s/%s/%s", startMsg.Start.Id, activation.Model, activation.Id)
 
 		lock, err := s.bs.Lock(context.Background(), lockkey, time.Second)
 		if err != nil {
@@ -125,11 +125,10 @@ func (s *server) ReactorLoop(c echo.Context) error {
 						return fmt.Errorf("websocket closed")
 					}
 
-					switch msg.(type) {
-					case openapi.ReactorWorking:
+					if msg.Working != nil {
 						lock.KeepAlive()
 						continue
-					case openapi.ReactorDone:
+					} else if msg.Done != nil {
 						return nil
 					}
 
@@ -154,7 +153,7 @@ func (s *server) ReactorLoop(c echo.Context) error {
 		if bytes.Compare(b2, actBytes) != 0 {
 			slog.Info("reactor trip was working on outdated version")
 			w.Rollback()
-			s.bs.Send("reactor-activate-"+start.Id, b2)
+			s.bs.Send("reactor-activate-"+startMsg.Start.Id, b2)
 			return nil
 		}
 
@@ -224,7 +223,7 @@ func (s *server) ReactorLoop(c echo.Context) error {
 			}
 			_ = msg
 
-		case b2 := <-s.bs.Recv("reactor-activate-" + start.Id):
+		case b2 := <-s.bs.Recv("reactor-activate-" + startMsg.Start.Id):
 			if b2 == nil {
 				slog.Warn("bus error", "b", b2)
 				continue
@@ -242,7 +241,7 @@ func (s *server) ReactorLoop(c echo.Context) error {
 	}
 }
 
-func (s *server) handleWebSocketReceive(ws *websocket.Conn, recvch chan any) {
+func (s *server) handleWebSocketReceive(ws *websocket.Conn, recvch chan openapi.ReactorIn) {
 	defer close(recvch)
 	for {
 		var msg openapi.ReactorIn
@@ -250,12 +249,7 @@ func (s *server) handleWebSocketReceive(ws *websocket.Conn, recvch chan any) {
 			slog.Warn("WebSocket read error", "err", err)
 			return
 		}
-		v, err := msg.ValueByDiscriminator()
-		if err != nil {
-			slog.Warn("WebSocket read error", "err", err)
-			return
-		}
-		recvch <- v
+		recvch <- msg
 	}
 }
 
@@ -311,10 +305,6 @@ func (s *server) validateReactorSchema(ctx context.Context, object *openapi.Docu
 	if len(idparts) < 3 {
 		return status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain, like com.example.Book")
 	}
-	return nil
-}
-
-func (s *server) ensureReactor(ctx context.Context, object *openapi.Document) error {
 	return nil
 }
 

@@ -3,7 +3,6 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ReactorStart = {
-    kind: 'start';
     id: string;
 };
 

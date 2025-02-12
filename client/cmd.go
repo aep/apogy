@@ -2,11 +2,13 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -100,6 +102,13 @@ func parseFile(file string) ([]openapi.Document, error) {
 		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
 			return nil, fmt.Errorf("failed to parse document: %v", err)
 		}
+
+		if obj.Val != nil {
+			if err := resolveRefs(*obj.Val, file); err != nil {
+				return nil, fmt.Errorf("failed to resolve $refs: %v", err)
+			}
+		}
+
 		objects = append(objects, obj)
 	}
 
@@ -132,7 +141,11 @@ func put(cmd *cobra.Command, args []string) {
 		}
 
 		if resp.JSON200 == nil {
-			log.Fatalf("Unexpected response: %v", resp.StatusCode())
+			if resp.JSON400 != nil {
+				log.Fatalf("rejected: %s", *resp.JSON400.Message)
+			} else {
+				log.Fatalf("Unexpected response: %v", resp.StatusCode())
+			}
 		}
 
 		fmt.Println(resp.JSON200.Path)
@@ -234,17 +247,11 @@ func react(cmd *cobra.Command, args []string) {
 	}
 	defer c.Close()
 
-	// Send start message
-	start := openapi.ReactorStart{
-		Id: args[0],
+	var reactorIn = openapi.ReactorIn{
+		Start: &openapi.ReactorStart{
+			Id: args[0],
+		},
 	}
-
-	var reactorIn openapi.ReactorIn
-	err = reactorIn.FromReactorStart(start)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	err = c.WriteJSON(reactorIn)
 	if err != nil {
 		log.Fatalf("Failed to send start message: %v", err)
@@ -269,29 +276,21 @@ func react(cmd *cobra.Command, args []string) {
 			for i := 0; i < 5; i++ {
 				time.Sleep(time.Millisecond * 500)
 
-				var working openapi.ReactorIn
-				err = working.FromReactorWorking(openapi.ReactorWorking{})
-				if err != nil {
-					log.Printf("Failed to create working message: %v", err)
-					return
+				var reactorIn = openapi.ReactorIn{
+					Working: &openapi.ReactorWorking{},
 				}
-
-				err = c.WriteJSON(working)
+				err = c.WriteJSON(reactorIn)
 				if err != nil {
 					log.Printf("Failed to send working message: %v", err)
 					return
 				}
 			}
 
-			// Send done message
-			var doneMsg openapi.ReactorIn
-			err = doneMsg.FromReactorDone(openapi.ReactorDone{})
-			if err != nil {
-				log.Printf("Failed to create done message: %v", err)
-				return
+			var reactorIn = openapi.ReactorIn{
+				Done: &openapi.ReactorDone{},
 			}
 
-			err = c.WriteJSON(doneMsg)
+			err = c.WriteJSON(reactorIn)
 			if err != nil {
 				log.Printf("Failed to send done message: %v", err)
 				return
@@ -370,4 +369,51 @@ func edit(cmd *cobra.Command, args []string) {
 	// Read modified file and put object
 	file = tmpfile.Name()
 	put(cmd, args)
+}
+
+// resolveRefs recursively resolves $ref to include binaries.
+// this sucks and should eventually be replaced with something robust
+
+func resolveRefs(data map[string]interface{}, basePath string) error {
+	for key, value := range data {
+		switch v := value.(type) {
+		case map[string]interface{}:
+			if ref, ok := v["$ref"].(string); ok && strings.HasPrefix(ref, "file://") {
+				// Extract filename from $ref
+				filename := strings.TrimPrefix(ref, "file://")
+
+				// Ensure the path is relative (not going up directories)
+				if strings.Contains(filename, "..") {
+					return fmt.Errorf("$ref cannot reference parent directories: %s", filename)
+				}
+
+				// Resolve path relative to the base file
+				fullPath := filepath.Join(filepath.Dir(basePath), filename)
+
+				// Read and encode the referenced file
+				content, err := ioutil.ReadFile(fullPath)
+				if err != nil {
+					return fmt.Errorf("failed to read referenced file %s: %v", filename, err)
+				}
+
+				// Replace the $ref object with base64 encoded content
+				data[key] = base64.StdEncoding.EncodeToString(content)
+			} else {
+				// Recursively process nested maps
+				if err := resolveRefs(v, basePath); err != nil {
+					return err
+				}
+			}
+		case []interface{}:
+			// Process arrays
+			for _, item := range v {
+				if mapItem, ok := item.(map[string]interface{}); ok {
+					if err := resolveRefs(mapItem, basePath); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
 }

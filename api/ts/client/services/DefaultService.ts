@@ -46,6 +46,9 @@ export class DefaultService {
             url: '/v1',
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                400: `Validation Error`,
+            },
         });
     }
     /**

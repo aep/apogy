@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,26 +17,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/oapi-codegen/runtime"
 	strictecho "github.com/oapi-codegen/runtime/strictmiddleware/echo"
-)
-
-// Defines values for ReactorActivationKind.
-const (
-	Activation ReactorActivationKind = "activation"
-)
-
-// Defines values for ReactorDoneKind.
-const (
-	Done ReactorDoneKind = "done"
-)
-
-// Defines values for ReactorStartKind.
-const (
-	Start ReactorStartKind = "start"
-)
-
-// Defines values for ReactorWorkingKind.
-const (
-	Working ReactorWorkingKind = "working"
 )
 
 // Document defines model for Document.
@@ -71,26 +50,19 @@ type PutDocumentOK struct {
 
 // ReactorActivation defines model for ReactorActivation.
 type ReactorActivation struct {
-	Id      string                `json:"id"`
-	Kind    ReactorActivationKind `json:"kind"`
-	Model   string                `json:"model"`
-	Version uint64                `json:"version"`
+	Id      string `json:"id"`
+	Model   string `json:"model"`
+	Version uint64 `json:"version"`
 }
-
-// ReactorActivationKind defines model for ReactorActivation.Kind.
-type ReactorActivationKind string
 
 // ReactorDone defines model for ReactorDone.
-type ReactorDone struct {
-	Kind ReactorDoneKind `json:"kind"`
-}
-
-// ReactorDoneKind defines model for ReactorDone.Kind.
-type ReactorDoneKind string
+type ReactorDone = map[string]interface{}
 
 // ReactorIn defines model for ReactorIn.
 type ReactorIn struct {
-	union json.RawMessage
+	Done    *ReactorDone    `json:"done,omitempty"`
+	Start   *ReactorStart   `json:"start,omitempty"`
+	Working *ReactorWorking `json:"working,omitempty"`
 }
 
 // ReactorOut defines model for ReactorOut.
@@ -100,20 +72,11 @@ type ReactorOut struct {
 
 // ReactorStart defines model for ReactorStart.
 type ReactorStart struct {
-	Id   string           `json:"id"`
-	Kind ReactorStartKind `json:"kind"`
+	Id string `json:"id"`
 }
-
-// ReactorStartKind defines model for ReactorStart.Kind.
-type ReactorStartKind string
 
 // ReactorWorking defines model for ReactorWorking.
-type ReactorWorking struct {
-	Kind ReactorWorkingKind `json:"kind"`
-}
-
-// ReactorWorkingKind defines model for ReactorWorking.Kind.
-type ReactorWorkingKind string
+type ReactorWorking = map[string]interface{}
 
 // SearchRequest defines model for SearchRequest.
 type SearchRequest struct {
@@ -136,125 +99,6 @@ type SearchDocumentsJSONRequestBody = SearchRequest
 
 // ReactorLoopJSONRequestBody defines body for ReactorLoop for application/json ContentType.
 type ReactorLoopJSONRequestBody = ReactorIn
-
-// AsReactorStart returns the union data inside the ReactorIn as a ReactorStart
-func (t ReactorIn) AsReactorStart() (ReactorStart, error) {
-	var body ReactorStart
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromReactorStart overwrites any union data inside the ReactorIn as the provided ReactorStart
-func (t *ReactorIn) FromReactorStart(v ReactorStart) error {
-	v.Kind = "start"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeReactorStart performs a merge with any union data inside the ReactorIn, using the provided ReactorStart
-func (t *ReactorIn) MergeReactorStart(v ReactorStart) error {
-	v.Kind = "start"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JsonMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsReactorWorking returns the union data inside the ReactorIn as a ReactorWorking
-func (t ReactorIn) AsReactorWorking() (ReactorWorking, error) {
-	var body ReactorWorking
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromReactorWorking overwrites any union data inside the ReactorIn as the provided ReactorWorking
-func (t *ReactorIn) FromReactorWorking(v ReactorWorking) error {
-	v.Kind = "working"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeReactorWorking performs a merge with any union data inside the ReactorIn, using the provided ReactorWorking
-func (t *ReactorIn) MergeReactorWorking(v ReactorWorking) error {
-	v.Kind = "working"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JsonMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsReactorDone returns the union data inside the ReactorIn as a ReactorDone
-func (t ReactorIn) AsReactorDone() (ReactorDone, error) {
-	var body ReactorDone
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromReactorDone overwrites any union data inside the ReactorIn as the provided ReactorDone
-func (t *ReactorIn) FromReactorDone(v ReactorDone) error {
-	v.Kind = "done"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeReactorDone performs a merge with any union data inside the ReactorIn, using the provided ReactorDone
-func (t *ReactorIn) MergeReactorDone(v ReactorDone) error {
-	v.Kind = "done"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JsonMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t ReactorIn) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"kind"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
-}
-
-func (t ReactorIn) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
-	if err != nil {
-		return nil, err
-	}
-	switch discriminator {
-	case "done":
-		return t.AsReactorDone()
-	case "start":
-		return t.AsReactorStart()
-	case "working":
-		return t.AsReactorWorking()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
-	}
-}
-
-func (t ReactorIn) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *ReactorIn) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -659,6 +503,9 @@ type PutDocumentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *PutDocumentOK
+	JSON400      *struct {
+		Message *string `json:"message,omitempty"`
+	}
 }
 
 // Status returns HTTPResponse.Status
@@ -823,6 +670,15 @@ func ParsePutDocumentResponse(rsp *http.Response) (*PutDocumentResponse, error) 
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Message *string `json:"message,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	}
 
@@ -1027,6 +883,17 @@ type PutDocument200JSONResponse PutDocumentOK
 func (response PutDocument200JSONResponse) VisitPutDocumentResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutDocument400JSONResponse struct {
+	Message *string `json:"message,omitempty"`
+}
+
+func (response PutDocument400JSONResponse) VisitPutDocumentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
 
 	return json.NewEncoder(w).Encode(response)
 }

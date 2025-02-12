@@ -11,7 +11,7 @@ export type { Document } from './models/Document';
 export type { Filter } from './models/Filter';
 export type { History } from './models/History';
 export type { PutDocumentOK } from './models/PutDocumentOK';
-export { ReactorActivation } from './models/ReactorActivation';
+export type { ReactorActivation } from './models/ReactorActivation';
 export type { ReactorDone } from './models/ReactorDone';
 export type { ReactorIn } from './models/ReactorIn';
 export type { ReactorOut } from './models/ReactorOut';
