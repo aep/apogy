@@ -43,11 +43,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-
+                $ref: '#/components/schemas/ErrorResponse'
         '200':
           description: Successfully stored document
           content:
@@ -178,7 +174,6 @@ components:
         done:
           $ref: '#/components/schemas/ReactorDone'
 
-
     ReactorStart:
       type: object
       required:
@@ -213,3 +208,27 @@ components:
         version:
           type: integer
           format: uint64
+
+    # New schemas for validation
+    ValidationRequest:
+      type: object
+      properties:
+        current:
+          $ref: '#/components/schemas/Document'
+        pending:
+          $ref: '#/components/schemas/Document'
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    ValidationResponse:
+      type: object
+      properties:
+        reject:
+          type: object
+          properties:
+            message:
+              type: string

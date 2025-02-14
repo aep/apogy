@@ -131,12 +131,6 @@ func (s *server) PutDocument(c echo.Context) error {
 		}
 	}
 
-	if doc.Model == "Reactor" {
-		if err := s.ensureReactor(c.Request().Context(), &doc); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		}
-	}
-
 	bytes, err := json.Marshal(doc)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("marshal error: %v", err))

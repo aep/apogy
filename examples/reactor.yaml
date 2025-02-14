@@ -2,16 +2,12 @@
 model: Reactor
 id: com.example.MailTemplateValidator
 val:
-  validator: true
-  wasm: |
-    $ref: file://reactor/assemblyscript/validator.wasm
+  url: http://localhost:8823/validator/
 ---
 model: Reactor
 id: com.example.MailTemplateUnroller
 val:
-  reconciler: true
-  wasm: |
-    $ref: file://reactor/assemblyscript/reconciler.wasm
+  url: http://localhost:8823/unroller/
 ---
 model: Model
 id: com.example.EmailTemplate
@@ -29,7 +25,6 @@ val:
       type: boolean
   reactors:
     - com.example.MailTemplateValidator
-    - com.example.MailTemplateUnroller
 ---
 model: Model
 id: com.example.Email
@@ -52,4 +47,14 @@ val:
   to:
     - mikemikesone@xample.com
     - spam-me-daddy@example.com
+---
+model: com.example.EmailTemplate
+id: validationfailure
+val:
+  subject: you win big
+  body: quadrillion us dolors just send us your SSN quick
+  to:
+    - mikemikesone@xample.com
+    - spam-me-daddy@example.com
+    - lolwhat
 ---

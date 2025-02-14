@@ -29,6 +29,11 @@ type Document struct {
 	Version *uint64                 `json:"version,omitempty"`
 }
 
+// ErrorResponse defines model for ErrorResponse.
+type ErrorResponse struct {
+	Message *string `json:"message,omitempty"`
+}
+
 // Filter defines model for Filter.
 type Filter struct {
 	Equal   *interface{} `json:"equal,omitempty"`
@@ -89,6 +94,19 @@ type SearchRequest struct {
 type SearchResponse struct {
 	Cursor *string   `json:"cursor,omitempty"`
 	Ids    *[]string `json:"ids,omitempty"`
+}
+
+// ValidationRequest defines model for ValidationRequest.
+type ValidationRequest struct {
+	Current *Document `json:"current,omitempty"`
+	Pending *Document `json:"pending,omitempty"`
+}
+
+// ValidationResponse defines model for ValidationResponse.
+type ValidationResponse struct {
+	Reject *struct {
+		Message *string `json:"message,omitempty"`
+	} `json:"reject,omitempty"`
 }
 
 // PutDocumentJSONRequestBody defines body for PutDocument for application/json ContentType.
@@ -503,9 +521,7 @@ type PutDocumentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *PutDocumentOK
-	JSON400      *struct {
-		Message *string `json:"message,omitempty"`
-	}
+	JSON400      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -672,9 +688,7 @@ func ParsePutDocumentResponse(rsp *http.Response) (*PutDocumentResponse, error) 
 		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest struct {
-			Message *string `json:"message,omitempty"`
-		}
+		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -887,9 +901,7 @@ func (response PutDocument200JSONResponse) VisitPutDocumentResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type PutDocument400JSONResponse struct {
-	Message *string `json:"message,omitempty"`
-}
+type PutDocument400JSONResponse ErrorResponse
 
 func (response PutDocument400JSONResponse) VisitPutDocumentResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")

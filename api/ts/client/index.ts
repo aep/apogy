@@ -8,6 +8,7 @@ export { OpenAPI } from './core/OpenAPI';
 export type { OpenAPIConfig } from './core/OpenAPI';
 
 export type { Document } from './models/Document';
+export type { ErrorResponse } from './models/ErrorResponse';
 export type { Filter } from './models/Filter';
 export type { History } from './models/History';
 export type { PutDocumentOK } from './models/PutDocumentOK';
@@ -19,5 +20,7 @@ export type { ReactorStart } from './models/ReactorStart';
 export type { ReactorWorking } from './models/ReactorWorking';
 export type { SearchRequest } from './models/SearchRequest';
 export type { SearchResponse } from './models/SearchResponse';
+export type { ValidationRequest } from './models/ValidationRequest';
+export type { ValidationResponse } from './models/ValidationResponse';
 
 export { DefaultService } from './services/DefaultService';

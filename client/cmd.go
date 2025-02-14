@@ -2,19 +2,15 @@ package client
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"apogy/api/go"
 
-	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 )
@@ -22,11 +18,6 @@ import (
 var (
 	file    string
 	address = "http://localhost:5052"
-
-	CMD = &cobra.Command{
-		Use:   "client",
-		Short: "API client",
-	}
 
 	putCmd = &cobra.Command{
 		Use:     "put",
@@ -56,25 +47,16 @@ var (
 		Args:    cobra.MinimumNArgs(2),
 		Run:     search,
 	}
-
-	reactCmd = &cobra.Command{
-		Use:     "reactor [id]",
-		Aliases: []string{"react"},
-		Short:   "Simulator a react that accepts everything",
-		Args:    cobra.MinimumNArgs(1),
-		Run:     react,
-	}
 )
 
-func init() {
+func RegisterCommands(root *cobra.Command) {
 	putCmd.Flags().StringVarP(&file, "file", "f", "", "Path to JSON/YAML file")
 	putCmd.MarkFlagRequired("file")
 
-	CMD.AddCommand(putCmd)
-	CMD.AddCommand(getCmd)
-	CMD.AddCommand(editCmd)
-	CMD.AddCommand(searchCmd)
-	CMD.AddCommand(reactCmd)
+	root.AddCommand(putCmd)
+	root.AddCommand(getCmd)
+	root.AddCommand(editCmd)
+	root.AddCommand(searchCmd)
 }
 
 func parseFile(file string) ([]openapi.Document, error) {
@@ -101,12 +83,6 @@ func parseFile(file string) ([]openapi.Document, error) {
 		var obj openapi.Document
 		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
 			return nil, fmt.Errorf("failed to parse document: %v", err)
-		}
-
-		if obj.Val != nil {
-			if err := resolveRefs(*obj.Val, file); err != nil {
-				return nil, fmt.Errorf("failed to resolve $refs: %v", err)
-			}
 		}
 
 		objects = append(objects, obj)
@@ -234,71 +210,6 @@ func search(cmd *cobra.Command, args []string) {
 	}
 }
 
-func react(cmd *cobra.Command, args []string) {
-	// Convert HTTP URL to WebSocket URL
-	wsURL := strings.Replace(address, "http://", "ws://", 1)
-	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
-	wsURL += "/v1/reactor"
-
-	// Connect to WebSocket
-	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		log.Fatalf("Failed to connect to WebSocket: %v", err)
-	}
-	defer c.Close()
-
-	var reactorIn = openapi.ReactorIn{
-		Start: &openapi.ReactorStart{
-			Id: args[0],
-		},
-	}
-	err = c.WriteJSON(reactorIn)
-	if err != nil {
-		log.Fatalf("Failed to send start message: %v", err)
-	}
-
-	for {
-		var reactorOut openapi.ReactorOut
-		err := c.ReadJSON(&reactorOut)
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket read error: %v", err)
-			}
-			return
-		}
-
-		fmt.Println(reactorOut)
-
-		if reactorOut.Activation != nil {
-			fmt.Printf("Received activation: %v\n", reactorOut.Activation)
-
-			// Simulate work with periodic working messages
-			for i := 0; i < 5; i++ {
-				time.Sleep(time.Millisecond * 500)
-
-				var reactorIn = openapi.ReactorIn{
-					Working: &openapi.ReactorWorking{},
-				}
-				err = c.WriteJSON(reactorIn)
-				if err != nil {
-					log.Printf("Failed to send working message: %v", err)
-					return
-				}
-			}
-
-			var reactorIn = openapi.ReactorIn{
-				Done: &openapi.ReactorDone{},
-			}
-
-			err = c.WriteJSON(reactorIn)
-			if err != nil {
-				log.Printf("Failed to send done message: %v", err)
-				return
-			}
-		}
-	}
-}
-
 func edit(cmd *cobra.Command, args []string) {
 	parts := strings.Split(args[0], "/")
 	if len(parts) != 2 {
@@ -369,51 +280,4 @@ func edit(cmd *cobra.Command, args []string) {
 	// Read modified file and put object
 	file = tmpfile.Name()
 	put(cmd, args)
-}
-
-// resolveRefs recursively resolves $ref to include binaries.
-// this sucks and should eventually be replaced with something robust
-
-func resolveRefs(data map[string]interface{}, basePath string) error {
-	for key, value := range data {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			if ref, ok := v["$ref"].(string); ok && strings.HasPrefix(ref, "file://") {
-				// Extract filename from $ref
-				filename := strings.TrimPrefix(ref, "file://")
-
-				// Ensure the path is relative (not going up directories)
-				if strings.Contains(filename, "..") {
-					return fmt.Errorf("$ref cannot reference parent directories: %s", filename)
-				}
-
-				// Resolve path relative to the base file
-				fullPath := filepath.Join(filepath.Dir(basePath), filename)
-
-				// Read and encode the referenced file
-				content, err := ioutil.ReadFile(fullPath)
-				if err != nil {
-					return fmt.Errorf("failed to read referenced file %s: %v", filename, err)
-				}
-
-				// Replace the $ref object with base64 encoded content
-				data[key] = base64.StdEncoding.EncodeToString(content)
-			} else {
-				// Recursively process nested maps
-				if err := resolveRefs(v, basePath); err != nil {
-					return err
-				}
-			}
-		case []interface{}:
-			// Process arrays
-			for _, item := range v {
-				if mapItem, ok := item.(map[string]interface{}); ok {
-					if err := resolveRefs(mapItem, basePath); err != nil {
-						return err
-					}
-				}
-			}
-		}
-	}
-	return nil
 }
