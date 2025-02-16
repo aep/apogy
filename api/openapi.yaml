@@ -26,6 +26,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Document'
+    delete:
+      operationId: deleteDocument
+      summary: Delete a document by model and ID
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully deleted document
+        '404':
+          description: Document not found
     
   /v1:
     post:

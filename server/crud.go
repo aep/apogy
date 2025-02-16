@@ -182,3 +182,45 @@ func (s *server) GetDocument(c echo.Context, model string, id string) error {
 
 	return c.JSON(http.StatusOK, doc)
 }
+
+func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
+	path, err := safeDBPath(model, id)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	w := s.kv.Write()
+	defer w.Close()
+
+	// First get the document to remove its indexes
+	bytes, err := w.Get(c.Request().Context(), []byte(path))
+	if err != nil {
+		if strings.Contains(err.Error(), "not exist") {
+			return echo.NewHTTPError(http.StatusNotFound, "document not found")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
+	}
+	if bytes == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "document not found")
+	}
+
+	var doc openapi.Document
+	if err := json.Unmarshal(bytes, &doc); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
+	}
+
+	// Remove indexes first
+	if err := s.deleteIndex(w, &doc); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
+	}
+
+	// Delete the document
+	w.Del([]byte(path))
+
+	if err := w.Commit(c.Request().Context()); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+

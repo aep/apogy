@@ -13,11 +13,9 @@ a cloud native json schema database with durable reactors built on tikv and nats
 
 ## quickstart
 
-    docker run -p 5052:5052 ghcr.io/aep/apogy:v0 server
-
-or alternatively:
-
-    go install github.com/aep/apogy/cmd/apogy@latest
+    go install .
+    docker compose up -d
+    apogy server
 
 Let's create a model.
 The most simple model in apogy is a jsonschema.
@@ -115,10 +113,5 @@ however trying to change the val while using an outdated version will fail
 
 
 ## dev
-
-this unfortunately requires setting "pd" to 127.0.0.1 in /etc/hosts
-
-    go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
     docker compose up -d

@@ -206,6 +206,9 @@ type ClientInterface interface {
 
 	ReactorLoop(ctx context.Context, body ReactorLoopJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteDocument request
+	DeleteDocument(ctx context.Context, model string, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetDocument request
 	GetDocument(ctx context.Context, model string, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
@@ -272,6 +275,18 @@ func (c *Client) ReactorLoopWithBody(ctx context.Context, contentType string, bo
 
 func (c *Client) ReactorLoop(ctx context.Context, body ReactorLoopJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReactorLoopRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteDocument(ctx context.Context, model string, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteDocumentRequest(c.Server, model, id)
 	if err != nil {
 		return nil, err
 	}
@@ -414,6 +429,47 @@ func NewReactorLoopRequestWithBody(server string, contentType string, body io.Re
 	return req, nil
 }
 
+// NewDeleteDocumentRequest generates requests for DeleteDocument
+func NewDeleteDocumentRequest(server string, model string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "model", runtime.ParamLocationPath, model)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetDocumentRequest generates requests for GetDocument
 func NewGetDocumentRequest(server string, model string, id string) (*http.Request, error) {
 	var err error
@@ -513,6 +569,9 @@ type ClientWithResponsesInterface interface {
 
 	ReactorLoopWithResponse(ctx context.Context, body ReactorLoopJSONRequestBody, reqEditors ...RequestEditorFn) (*ReactorLoopResponse, error)
 
+	// DeleteDocumentWithResponse request
+	DeleteDocumentWithResponse(ctx context.Context, model string, id string, reqEditors ...RequestEditorFn) (*DeleteDocumentResponse, error)
+
 	// GetDocumentWithResponse request
 	GetDocumentWithResponse(ctx context.Context, model string, id string, reqEditors ...RequestEditorFn) (*GetDocumentResponse, error)
 }
@@ -578,6 +637,27 @@ func (r ReactorLoopResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r ReactorLoopResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteDocumentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteDocumentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteDocumentResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -655,6 +735,15 @@ func (c *ClientWithResponses) ReactorLoopWithResponse(ctx context.Context, body 
 		return nil, err
 	}
 	return ParseReactorLoopResponse(rsp)
+}
+
+// DeleteDocumentWithResponse request returning *DeleteDocumentResponse
+func (c *ClientWithResponses) DeleteDocumentWithResponse(ctx context.Context, model string, id string, reqEditors ...RequestEditorFn) (*DeleteDocumentResponse, error) {
+	rsp, err := c.DeleteDocument(ctx, model, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteDocumentResponse(rsp)
 }
 
 // GetDocumentWithResponse request returning *GetDocumentResponse
@@ -751,6 +840,22 @@ func ParseReactorLoopResponse(rsp *http.Response) (*ReactorLoopResponse, error) 
 	return response, nil
 }
 
+// ParseDeleteDocumentResponse parses an HTTP response from a DeleteDocumentWithResponse call
+func ParseDeleteDocumentResponse(rsp *http.Response) (*DeleteDocumentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteDocumentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
 // ParseGetDocumentResponse parses an HTTP response from a GetDocumentWithResponse call
 func ParseGetDocumentResponse(rsp *http.Response) (*GetDocumentResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -788,6 +893,9 @@ type ServerInterface interface {
 	// Bidirectional streaming for reactor operations
 	// (GET /v1/reactor)
 	ReactorLoop(ctx echo.Context) error
+	// Delete a document by model and ID
+	// (DELETE /v1/{model}/{id})
+	DeleteDocument(ctx echo.Context, model string, id string) error
 	// Get a document by model and ID
 	// (GET /v1/{model}/{id})
 	GetDocument(ctx echo.Context, model string, id string) error
@@ -822,6 +930,30 @@ func (w *ServerInterfaceWrapper) ReactorLoop(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.ReactorLoop(ctx)
+	return err
+}
+
+// DeleteDocument converts echo context to params.
+func (w *ServerInterfaceWrapper) DeleteDocument(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "model" -------------
+	var model string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "model", runtime.ParamLocationPath, ctx.Param("model"), &model)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter model: %s", err))
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithLocation("simple", false, "id", runtime.ParamLocationPath, ctx.Param("id"), &id)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter id: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.DeleteDocument(ctx, model, id)
 	return err
 }
 
@@ -880,6 +1012,7 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	router.POST(baseURL+"/v1", wrapper.PutDocument)
 	router.POST(baseURL+"/v1/q", wrapper.SearchDocuments)
 	router.GET(baseURL+"/v1/reactor", wrapper.ReactorLoop)
+	router.DELETE(baseURL+"/v1/:model/:id", wrapper.DeleteDocument)
 	router.GET(baseURL+"/v1/:model/:id", wrapper.GetDocument)
 
 }
@@ -944,6 +1077,31 @@ func (response ReactorLoop200JSONResponse) VisitReactorLoopResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type DeleteDocumentRequestObject struct {
+	Model string `json:"model"`
+	Id    string `json:"id"`
+}
+
+type DeleteDocumentResponseObject interface {
+	VisitDeleteDocumentResponse(w http.ResponseWriter) error
+}
+
+type DeleteDocument200Response struct {
+}
+
+func (response DeleteDocument200Response) VisitDeleteDocumentResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type DeleteDocument404Response struct {
+}
+
+func (response DeleteDocument404Response) VisitDeleteDocumentResponse(w http.ResponseWriter) error {
+	w.WriteHeader(404)
+	return nil
+}
+
 type GetDocumentRequestObject struct {
 	Model string `json:"model"`
 	Id    string `json:"id"`
@@ -973,6 +1131,9 @@ type StrictServerInterface interface {
 	// Bidirectional streaming for reactor operations
 	// (GET /v1/reactor)
 	ReactorLoop(ctx context.Context, request ReactorLoopRequestObject) (ReactorLoopResponseObject, error)
+	// Delete a document by model and ID
+	// (DELETE /v1/{model}/{id})
+	DeleteDocument(ctx context.Context, request DeleteDocumentRequestObject) (DeleteDocumentResponseObject, error)
 	// Get a document by model and ID
 	// (GET /v1/{model}/{id})
 	GetDocument(ctx context.Context, request GetDocumentRequestObject) (GetDocumentResponseObject, error)
@@ -1071,6 +1232,32 @@ func (sh *strictHandler) ReactorLoop(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(ReactorLoopResponseObject); ok {
 		return validResponse.VisitReactorLoopResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DeleteDocument operation middleware
+func (sh *strictHandler) DeleteDocument(ctx echo.Context, model string, id string) error {
+	var request DeleteDocumentRequestObject
+
+	request.Model = model
+	request.Id = id
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteDocument(ctx.Request().Context(), request.(DeleteDocumentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteDocument")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DeleteDocumentResponseObject); ok {
+		return validResponse.VisitDeleteDocumentResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

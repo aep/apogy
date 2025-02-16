@@ -6,6 +6,7 @@ import (
 	"iter"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/vfs"
 	"sync"
 )
 
@@ -232,7 +233,6 @@ func (p *Pebbledb) Close() {
 }
 
 func (p *Pebbledb) Write() Write {
-
 	batch := p.db.NewIndexedBatch()
 	return &PebbleWrite{p: p, batch: batch, db: p.db, err: nil, commited: false}
 }
@@ -254,3 +254,18 @@ func NewPebble() (KV, error) {
 
 	return &Pebbledb{db: db}, nil
 }
+
+// NewPebbleInMem creates a new in-memory Pebble database instance for testing.
+func NewMemPebble() (KV, error) {
+	opts := &pebble.Options{
+		FS: vfs.NewMem(),
+	}
+
+	db, err := pebble.Open("", opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Pebbledb{db: db}, nil
+}
+

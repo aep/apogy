@@ -33,6 +33,29 @@ export class DefaultService {
         });
     }
     /**
+     * Delete a document by model and ID
+     * @param model
+     * @param id
+     * @returns any Successfully deleted document
+     * @throws ApiError
+     */
+    public static deleteDocument(
+        model: string,
+        id: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/v1/{model}/{id}',
+            path: {
+                'model': model,
+                'id': id,
+            },
+            errors: {
+                404: `Document not found`,
+            },
+        });
+    }
+    /**
      * Create or update a document
      * @param requestBody
      * @returns PutDocumentOK Successfully stored document

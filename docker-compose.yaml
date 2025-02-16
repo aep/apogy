@@ -2,33 +2,31 @@ services:
   pd:
     container_name: pd 
     image: pingcap/pd:latest
+    network_mode: host
     command:
         - --name=pd
         - --data-dir=/data
         - --client-urls=http://0.0.0.0:2379
-        - --advertise-client-urls=http://pd:2379
+        - --advertise-client-urls=http://127.0.0.1:2379
         - --peer-urls=http://0.0.0.0:2380
         - --log-file=/dev/stderr
     restart: on-failure
-    ports:
-      - 2379:2379
   tikv:
     container_name: tikv
     image: pingcap/tikv:latest
+    network_mode: host
     command:
         - --addr=0.0.0.0:20160
         - --advertise-addr=127.0.0.1:20160
-        - --pd=pd:2379
+        - --pd=http://127.0.0.1:2379
         - --data-dir=/data
         - --log-file=/dev/stderr
     restart: on-failure
-    ports:
-      - 20160:20160
+    depends_on:
+      - pd
   nats:
     container_name: nats
     image: nats:latest
+    network_mode: host
     command: "--js"
-    ports:
-      - "4222:4222"
-      - "8222:8222"
     restart: on-failure
