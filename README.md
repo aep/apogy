@@ -13,9 +13,15 @@ a cloud native json schema database with durable reactors built on tikv and nats
 
 ## quickstart
 
-let's create a model.
-the most simple model in apogy is a jsonschema.
-let's also create an object of that model.
+    docker run -p 5052:5052 ghcr.io/aep/apogy:v0
+
+or alternatively:
+
+    go install github.com/aep/apogy/cmd/apogy@latest
+
+Let's create a model.
+The most simple model in apogy is a jsonschema.
+Let's also create an object of that model.
 
 ```yaml
 ---
@@ -39,7 +45,7 @@ val:
 
     apogy apply -f examples/quickstart.yaml
 
-try what happens when you violate the jsonschema
+Try what happens when you violate the jsonschema
 
     apogy apply -f - <<EOF
     model:  com.example.Book
@@ -51,7 +57,7 @@ try what happens when you violate the jsonschema
     '/name' does not validate with schema://com.example.Book#/properties/name/type: expected string, but got number
 
 
-the jsonschema does not explicitly set additionalProperties: false, so this model allows arbitrary other json keys. however, it wont be searchable.
+The jsonschema does not explicitly set additionalProperties: false, so this model allows arbitrary other json keys. However, it won't be searchable.
 
 
 ## search
