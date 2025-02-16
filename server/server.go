@@ -1,10 +1,10 @@
 package server
 
 import (
-	"apogy/api/go"
-	"apogy/bus"
-	"apogy/kv"
 	"fmt"
+	"github.com/aep/apogy/api/go"
+	"github.com/aep/apogy/bus"
+	"github.com/aep/apogy/kv"
 	"log/slog"
 	"net/http"
 	"time"

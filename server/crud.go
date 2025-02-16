@@ -9,8 +9,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"apogy/api/go"
 	"encoding/json"
+	"github.com/aep/apogy/api/go"
 )
 
 func (s *server) PutDocument(c echo.Context) error {

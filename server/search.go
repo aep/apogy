@@ -7,8 +7,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"apogy/api/go"
-	"apogy/kv"
+	"github.com/aep/apogy/api/go"
+	"github.com/aep/apogy/kv"
 	"iter"
 )
 

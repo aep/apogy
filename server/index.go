@@ -1,10 +1,10 @@
 package server
 
 import (
-	"apogy/api/go"
-	"apogy/kv"
 	"encoding/binary"
 	"fmt"
+	"github.com/aep/apogy/api/go"
+	"github.com/aep/apogy/kv"
 	"log/slog"
 	"math"
 )

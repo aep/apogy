@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"apogy/api/go"
+	"github.com/aep/apogy/api/go"
 
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"

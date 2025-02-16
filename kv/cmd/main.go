@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"apogy/kv"
 	"fmt"
+	"github.com/aep/apogy/kv"
 	"github.com/spf13/cobra"
 	"strings"
 )

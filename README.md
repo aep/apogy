@@ -13,7 +13,7 @@ a cloud native json schema database with durable reactors built on tikv and nats
 
 ## quickstart
 
-    docker run -p 5052:5052 ghcr.io/aep/apogy:v0
+    docker run -p 5052:5052 ghcr.io/aep/apogy:v0 server
 
 or alternatively:
 

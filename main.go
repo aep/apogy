@@ -1,10 +1,10 @@
 package main
 
 import (
-	cl "apogy/client"
-	kv "apogy/kv/cmd"
-	sr "apogy/server"
 	"fmt"
+	cl "github.com/aep/apogy/client"
+	kv "github.com/aep/apogy/kv/cmd"
+	sr "github.com/aep/apogy/server"
 	"github.com/spf13/cobra"
 	"os"
 )

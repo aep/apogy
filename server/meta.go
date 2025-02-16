@@ -1,9 +1,9 @@
 package server
 
 import (
-	"apogy/api/go"
 	"errors"
 	"fmt"
+	"github.com/aep/apogy/api/go"
 )
 
 func (s *server) validateMeta(doc *openapi.Document) error {

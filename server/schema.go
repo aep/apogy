@@ -1,11 +1,11 @@
 package server
 
 import (
-	"apogy/api/go"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/aep/apogy/api/go"
 	"strings"
 
 	"github.com/labstack/echo/v4"

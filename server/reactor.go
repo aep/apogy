@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"apogy/api/go"
+	"github.com/aep/apogy/api/go"
 )
 
 var upgrader = websocket.Upgrader{

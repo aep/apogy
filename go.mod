@@ -1,4 +1,4 @@
-module apogy
+module github.com/aep/apogy
 
 go 1.23.6
 
