@@ -172,6 +172,8 @@ components:
             $ref: '#/components/schemas/Filter'
         cursor:
           type: string
+        limit:
+          type: integer
 
     SearchResponse:
       type: object

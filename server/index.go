@@ -11,13 +11,13 @@ import (
 
 func (s *server) deleteIndex(w kv.Write, object *openapi.Document) error {
 	pathPrefix := []byte(fmt.Sprintf("f\xff%s\xffval", object.Model))
-	pathPostfix := []byte(fmt.Sprintf("%s", object.Id))
+	pathPostfix := []byte(fmt.Sprintf("%s\xff", object.Id))
 	return s.writeIndexI(w, pathPrefix, pathPostfix, object.Val, true)
 }
 
 func (s *server) createIndex(w kv.Write, object *openapi.Document) error {
 	pathPrefix := []byte(fmt.Sprintf("f\xff%s\xffval", object.Model))
-	pathPostfix := []byte(fmt.Sprintf("%s", object.Id))
+	pathPostfix := []byte(fmt.Sprintf("%s\xff", object.Id))
 	return s.writeIndexI(w, pathPrefix, pathPostfix, object.Val, false)
 }
 

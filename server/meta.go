@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/aep/apogy/api/go"
+	"strings"
 )
 
 func (s *server) validateMeta(doc *openapi.Document) error {
@@ -65,4 +66,16 @@ func safeDB(model string) ([]byte, error) {
 		}
 	}
 	return []byte(model), nil
+}
+
+func escapeNonPrintable(b []byte) string {
+	var result strings.Builder
+	for _, c := range b {
+		if c >= 32 && c <= 126 {
+			result.WriteByte(c)
+		} else {
+			result.WriteString(fmt.Sprintf("\\x%02x", c))
+		}
+	}
+	return result.String()
 }

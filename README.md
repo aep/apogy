@@ -62,7 +62,7 @@ The jsonschema does not explicitly set additionalProperties: false, so this mode
 
 we can search by any modelled property
 
-    apogy find val.name="Dune" val.author="Frank Herbert"
+    apogy find com.example.Book val.name="Dune" val.author="Frank Herbert"
     apogy get com.example.Book/dune
 
 while you can specify multiple search terms, databases can really only run one term in O(1) and the rest is O(n).
@@ -73,7 +73,7 @@ instead, order the filters manually by decreasing cardinality,
 the first filter should be the highest cardinality, meaning most specific, returning the fewest unique results.
 
 in the above example we first specify name=Dune, which is in the world of books is very specific.
-the next filter for val.author will be run against only a few items.
+There are only two books named Dune in the example dataset, so the next filter only needs to look at those 2.
 
 
 
@@ -109,9 +109,3 @@ however trying to change the val while using an outdated version will fail
 
     Failed to put object: 409: version is out of date
 
-
-
-
-## dev
-
-    docker compose up -d

@@ -44,7 +44,7 @@ var (
 		Use:     "search [model] [q]",
 		Aliases: []string{"find"},
 		Short:   "Search for documents",
-		Args:    cobra.MinimumNArgs(2),
+		Args:    cobra.MinimumNArgs(1),
 		Run:     search,
 	}
 )
@@ -189,24 +189,35 @@ func search(cmd *cobra.Command, args []string) {
 		filters = append(filters, parseFilter(arg))
 	}
 
-	req := openapi.SearchRequest{
-		Model:   args[0],
-		Filters: &filters,
-	}
-
-	resp, err := client.SearchDocumentsWithResponse(context.Background(), req)
-	if err != nil {
-		log.Fatalf("Failed to search documents: %v", err)
-	}
-
-	if resp.JSON200 == nil {
-		log.Fatalf("Unexpected response: %v", resp.StatusCode())
-	}
-
-	if resp.JSON200.Ids != nil {
-		for _, id := range *resp.JSON200.Ids {
-			fmt.Printf("%s/%s\n", args[0], id)
+	var cursor *string
+	for {
+		req := openapi.SearchRequest{
+			Model:   args[0],
+			Filters: &filters,
+			Cursor:  cursor,
 		}
+
+		resp, err := client.SearchDocumentsWithResponse(context.Background(), req)
+		if err != nil {
+			log.Fatalf("Failed to search documents: %v", err)
+		}
+
+		if resp.JSON200 == nil {
+			log.Fatalf("Unexpected response: %v", resp.StatusCode())
+		}
+
+		if resp.JSON200.Ids != nil {
+			for _, id := range *resp.JSON200.Ids {
+				fmt.Printf("%s/%s\n", args[0], id)
+			}
+		}
+
+		// If there's no cursor or no IDs returned, we've reached the end
+		if resp.JSON200.Cursor == nil || resp.JSON200.Ids == nil || len(*resp.JSON200.Ids) == 0 {
+			break
+		}
+
+		cursor = resp.JSON200.Cursor
 	}
 }
 

@@ -87,6 +87,7 @@ type ReactorWorking = map[string]interface{}
 type SearchRequest struct {
 	Cursor  *string   `json:"cursor,omitempty"`
 	Filters *[]Filter `json:"filters,omitempty"`
+	Limit   *int      `json:"limit,omitempty"`
 	Model   string    `json:"model"`
 }
 

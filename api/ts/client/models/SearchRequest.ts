@@ -7,5 +7,6 @@ export type SearchRequest = {
     model: string;
     filters?: Array<Filter>;
     cursor?: string;
+    limit?: number;
 };
 
