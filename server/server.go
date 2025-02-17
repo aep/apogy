@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 type server struct {
@@ -40,8 +41,9 @@ func Main() {
 
 	// Add logging middleware
 	e.Use(loggingMiddleware)
+	e.Use(middleware.BodyLimit("2M"))
 
-	// Register handlers
+	// Register OpenAPI handlers
 	openapi.RegisterHandlers(e, s)
 
 	// Start server

@@ -112,8 +112,8 @@ func TestSearchDocuments_NoFilters(t *testing.T) {
 		var response openapi.SearchResponse
 		err := json.Unmarshal(rec.Body.Bytes(), &response)
 		assert.NoError(t, err)
-		assert.NotNil(t, response.Ids)
-		assert.Len(t, *response.Ids, 3)
+		assert.NotNil(t, response.Documents)
+		assert.Len(t, response.Documents, 3)
 	}
 }
 
@@ -148,8 +148,8 @@ func TestSearchDocuments_SingleFilter(t *testing.T) {
 		var response openapi.SearchResponse
 		err := json.Unmarshal(rec.Body.Bytes(), &response)
 		assert.NoError(t, err)
-		assert.NotNil(t, response.Ids)
-		assert.Len(t, *response.Ids, 2)
+		assert.NotNil(t, response.Documents)
+		assert.Len(t, response.Documents, 2)
 	}
 }
 
@@ -191,9 +191,9 @@ func TestSearchDocuments_MultipleFilters(t *testing.T) {
 		var response openapi.SearchResponse
 		err := json.Unmarshal(rec.Body.Bytes(), &response)
 		assert.NoError(t, err)
-		assert.NotNil(t, response.Ids)
-		assert.Len(t, *response.Ids, 1)
-		assert.Equal(t, "doc1", (*response.Ids)[0])
+		assert.NotNil(t, response.Documents)
+		assert.Len(t, response.Documents, 1)
+		assert.Equal(t, "doc1", response.Documents[0].Id)
 	}
 }
 
@@ -264,10 +264,9 @@ func TestSearchDocuments_Cursor(t *testing.T) {
 			var cursorResponse openapi.SearchResponse
 			err = json.Unmarshal(rec.Body.Bytes(), &cursorResponse)
 			assert.NoError(t, err)
-			assert.NotNil(t, cursorResponse.Ids)
+			assert.NotNil(t, cursorResponse.Documents)
 			// Verify that we get different results with cursor
-			assert.NotEqual(t, response.Ids, cursorResponse.Ids)
+			assert.NotEqual(t, response.Documents, cursorResponse.Documents)
 		}
 	}
 }
-

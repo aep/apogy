@@ -58,12 +58,11 @@ Try what happens when you violate the jsonschema
 The jsonschema does not explicitly set additionalProperties: false, so this model allows arbitrary other json keys. However, it won't be searchable.
 
 
-## search
+## query
 
 we can search by any modelled property
 
-    apogy find com.example.Book val.name="Dune" val.author="Frank Herbert"
-    apogy get com.example.Book/dune
+    apogy q 'com.example.Book(val.name="Dune", val.author="Frank Herbert")'
 
 while you can specify multiple search terms, databases can really only run one term in O(1) and the rest is O(n).
 there is currently no automatic query planner, and i'm not sure if there should be one at all.
@@ -74,7 +73,6 @@ the first filter should be the highest cardinality, meaning most specific, retur
 
 in the above example we first specify name=Dune, which is in the world of books is very specific.
 There are only two books named Dune in the example dataset, so the next filter only needs to look at those 2.
-
 
 
 

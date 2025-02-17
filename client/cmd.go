@@ -48,6 +48,14 @@ var (
 		Args:    cobra.MinimumNArgs(1),
 		Run:     search,
 	}
+
+	qCmd = &cobra.Command{
+		Use:     "q [q]",
+		Aliases: []string{"query"},
+		Short:   "AQL Query",
+		Args:    cobra.MinimumNArgs(1),
+		Run:     query,
+	}
 )
 
 func RegisterCommands(root *cobra.Command) {
@@ -60,6 +68,7 @@ func RegisterCommands(root *cobra.Command) {
 	root.AddCommand(getCmd)
 	root.AddCommand(editCmd)
 	root.AddCommand(searchCmd)
+	root.AddCommand(qCmd)
 }
 
 func parseFile(file string) ([]openapi.Document, error) {
@@ -232,6 +241,52 @@ func search(cmd *cobra.Command, args []string) {
 	}
 }
 
+func query(cmd *cobra.Command, args []string) {
+	client, err := getClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var filters []openapi.Filter
+	for _, arg := range args[1:] {
+		filters = append(filters, parseFilter(arg))
+	}
+
+	var cursor *string
+	for {
+
+		qq := args[0]
+		if cursor != nil {
+			qq = `(cursor="` + *cursor + `") ` + qq
+		}
+
+		resp, err := client.SearchDocumentsWithBodyWithResponse(context.Background(), "application/x-aql", strings.NewReader(qq))
+		if err != nil {
+			log.Fatalf("Failed to search documents: %v", err)
+		}
+
+		if resp.JSON200 == nil {
+			log.Fatalf("Unexpected response: %v", resp.StatusCode())
+		}
+
+		for _, doc := range resp.JSON200.Documents {
+			enc, err := yaml.Marshal(doc)
+			if err != nil {
+				log.Fatalf("Failed to encode as YAML: %v", err)
+			}
+			os.Stdout.Write(enc)
+			fmt.Println("---")
+		}
+
+		// If there's no cursor or no IDs returned, we've reached the end
+		if resp.JSON200.Cursor == nil || len(resp.JSON200.Documents) == 0 {
+			break
+		}
+
+		cursor = resp.JSON200.Cursor
+	}
+}
+
 func edit(cmd *cobra.Command, args []string) {
 	parts := strings.Split(args[0], "/")
 	if len(parts) != 2 {
@@ -303,4 +358,3 @@ func edit(cmd *cobra.Command, args []string) {
 	file = tmpfile.Name()
 	put(cmd, args)
 }
-

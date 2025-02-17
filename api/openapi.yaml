@@ -80,6 +80,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SearchRequest'
+          application/x-aql:
+            schema:
+              type: string
       responses:
         '200':
           description: Search results
@@ -170,6 +173,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Filter'
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchRequest'
         cursor:
           type: string
         limit:

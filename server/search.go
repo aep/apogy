@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"io"
 	"net/http"
 
 	"github.com/aep/apogy/api/go"
+	"github.com/aep/apogy/aql"
 	"github.com/aep/apogy/kv"
 	"github.com/labstack/echo/v4"
 )
@@ -44,8 +46,20 @@ func makeKey(model string, filter *openapi.Filter) []byte {
 	return key
 }
 
-func (s *server) find(ctx context.Context, r kv.Read, model string, filter *openapi.Filter, limit int, cursor *string, full bool) (findResult, error) {
+func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string, full bool) (findResult, error) {
 	start := makeKey(model, filter)
+
+	if id != "" {
+		if filter.Equal == nil || *filter.Equal == nil {
+			return findResult{}, echo.NewHTTPError(http.StatusBadRequest, "second filter currently can only be a k=v")
+		}
+		start = append(start, []byte(id)...)
+
+		if cursor != nil {
+			panic("incorrect usage")
+		}
+	}
+
 	end := bytes.Clone(start)
 	end[len(end)-2] = end[len(end)-2] + 1
 
@@ -103,9 +117,21 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, filter *open
 }
 
 func (s *server) SearchDocuments(c echo.Context) error {
+
 	var req openapi.SearchRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+
+	if c.Request().Header.Get("Content-Type") == "application/x-aql" {
+		body, _ := io.ReadAll(c.Request().Body)
+		c.Request().Body.Close()
+		qa, err := aql.Parse(string(body))
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+		}
+		req = *qa.ToSearchRequest()
+	} else {
+		if err := c.Bind(&req); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+		}
 	}
 
 	if req.Model == "" {
@@ -130,28 +156,30 @@ func (s *server) SearchDocuments(c echo.Context) error {
 	var response openapi.SearchResponse
 
 	if req.Filters == nil || len(*req.Filters) == 0 {
-		result, err := s.find(c.Request().Context(), r, req.Model, nil, limit, req.Cursor, full)
+		result, err := s.find(c.Request().Context(), r, req.Model, "", nil, limit, req.Cursor, full)
 		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+			return err
 		}
 		response.Documents = result.documents
 		response.Cursor = result.cursor
 		return c.JSON(http.StatusOK, response)
 	}
 
-	result, err := s.find(c.Request().Context(), r, req.Model, &(*req.Filters)[0], limit, req.Cursor, full)
+	result, err := s.find(c.Request().Context(), r, req.Model, "", &(*req.Filters)[0], limit, req.Cursor, full)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return err
 	}
 
 	var matchedDocs []openapi.Document
 	for i, doc := range result.documents {
 		allMatch := true
 		for _, filter := range (*req.Filters)[1:] {
-			subResult, err := s.find(c.Request().Context(), r, req.Model, &filter, limit, nil, false)
+
+			subResult, err := s.find(c.Request().Context(), r, req.Model, doc.Id, &filter, 1, nil, false)
 			if err != nil {
-				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+				return err
 			}
+
 			found := false
 			for _, subId := range subResult.documents {
 				if doc.Id == subId.Id {

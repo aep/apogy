@@ -89,9 +89,10 @@ type SearchRequest struct {
 	Filters *[]Filter `json:"filters,omitempty"`
 
 	// Full If true, return full documents instead of just the ids
-	Full  *bool  `json:"full,omitempty"`
-	Limit *int   `json:"limit,omitempty"`
-	Model string `json:"model"`
+	Full  *bool            `json:"full,omitempty"`
+	Limit *int             `json:"limit,omitempty"`
+	Links *[]SearchRequest `json:"links,omitempty"`
+	Model string           `json:"model"`
 }
 
 // SearchResponse defines model for SearchResponse.
@@ -1048,7 +1049,8 @@ func (response PutDocument400JSONResponse) VisitPutDocumentResponse(w http.Respo
 }
 
 type SearchDocumentsRequestObject struct {
-	Body *SearchDocumentsJSONRequestBody
+	JSONBody *SearchDocumentsJSONRequestBody
+	Body     io.Reader
 }
 
 type SearchDocumentsResponseObject interface {
@@ -1188,11 +1190,16 @@ func (sh *strictHandler) PutDocument(ctx echo.Context) error {
 func (sh *strictHandler) SearchDocuments(ctx echo.Context) error {
 	var request SearchDocumentsRequestObject
 
-	var body SearchDocumentsJSONRequestBody
-	if err := ctx.Bind(&body); err != nil {
-		return err
+	if strings.HasPrefix(ctx.Request().Header.Get("Content-Type"), "application/json") {
+		var body SearchDocumentsJSONRequestBody
+		if err := ctx.Bind(&body); err != nil {
+			return err
+		}
+		request.JSONBody = &body
 	}
-	request.Body = &body
+	if strings.HasPrefix(ctx.Request().Header.Get("Content-Type"), "application/x-aql") {
+		request.Body = ctx.Request().Body
+	}
 
 	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
 		return sh.ssi.SearchDocuments(ctx.Request().Context(), request.(SearchDocumentsRequestObject))

@@ -6,6 +6,7 @@ import type { Filter } from './Filter';
 export type SearchRequest = {
     model: string;
     filters?: Array<Filter>;
+    links?: Array<SearchRequest>;
     cursor?: string;
     limit?: number;
     /**
