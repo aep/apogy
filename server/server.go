@@ -25,7 +25,7 @@ func newServer(kv kv.KV, bs bus.Bus) *server {
 }
 
 func Main() {
-	kv, err := kv.NewPebble()
+	kv, err := kv.NewTikv()
 	if err != nil {
 		panic(err)
 	}

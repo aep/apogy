@@ -12,8 +12,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/aep/apogy/api/go"
 )
@@ -133,7 +131,7 @@ func (s *server) ReactorLoop(c echo.Context) error {
 					}
 
 				case <-lock.Done():
-					return status.Error(codes.DeadlineExceeded, "keepalive deadline expired")
+					return fmt.Errorf("keepalive deadline expired")
 				}
 			}
 		}()
@@ -303,7 +301,7 @@ func (s *server) validateReactorSchema(ctx context.Context, object *openapi.Docu
 		return r == '.'
 	})
 	if len(idparts) < 3 {
-		return status.Errorf(codes.InvalidArgument, "validation error (id): must be a domain, like com.example.Book")
+		return fmt.Errorf("validation error (id): must be a domain, like com.example.Book")
 	}
 	return nil
 }
