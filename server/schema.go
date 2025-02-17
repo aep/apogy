@@ -27,6 +27,103 @@ func (s *server) validateLink(ctx context.Context, r kv.Read, link string) error
 	return nil
 }
 
+// validateLinkedDocument checks if a linked document exists
+func (s *server) validateLinkedDocument(ctx context.Context, model string, id string) error {
+	var doc openapi.Document
+	err := s.getDocument(ctx, model, id, &doc)
+	if err != nil {
+		return fmt.Errorf("linked document %s/%s does not exist", model, id)
+	}
+	return nil
+}
+
+// recursiveSchemaCheck performs recursive validation of linked models with loop detection
+func (s *server) recursiveSchemaCheck(ctx context.Context, r kv.Read, model string, modelDoc *openapi.Document, path []string, depth int) error {
+	if depth > 10 {
+		return fmt.Errorf("maximum schema link depth exceeded (10) starting from model %s", model)
+	}
+
+	// Check if the current model creates a loop in the dependency path
+	for _, visitedModel := range path {
+		if visitedModel == model {
+			// Create a readable path string showing the loop
+			pathStr := strings.Join(append(path, model), " -> ")
+			return fmt.Errorf("circular reference detected: %s", pathStr)
+		}
+	}
+
+	// Add current model to the path
+	currentPath := append(path, model)
+
+	// For linked models (not the first one), we need to load them
+	if modelDoc == nil {
+		modelData, err := r.Get(ctx, []byte("o\xffModel\xff"+model+"\xff"))
+		if err != nil {
+			return fmt.Errorf("error loading model %s: %w", model, err)
+		}
+		if modelData == nil {
+			return fmt.Errorf("model %s does not exist", model)
+		}
+
+		modelDoc = &openapi.Document{}
+		if err := json.Unmarshal(modelData, modelDoc); err != nil {
+			return fmt.Errorf("error unmarshaling model %s: %w", model, err)
+		}
+	}
+
+	if modelDoc.Val == nil {
+		return nil
+	}
+
+	properties, ok := (*modelDoc.Val)["properties"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	// Check all properties for links
+	for _, propValue := range properties {
+		prop, ok := propValue.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Check direct links
+		if link, exists := prop["link"].(string); exists {
+			if err := s.recursiveSchemaCheck(ctx, r, link, nil, currentPath, depth+1); err != nil {
+				return err
+			}
+		}
+
+		// Check array items
+		if propType, ok := prop["type"].(string); ok && propType == "array" {
+			if items, ok := prop["items"].(map[string]interface{}); ok {
+				if link, exists := items["link"].(string); exists {
+					if err := s.recursiveSchemaCheck(ctx, r, link, nil, currentPath, depth+1); err != nil {
+						return err
+					}
+				}
+			}
+		}
+
+		// Check nested objects
+		if propType, ok := prop["type"].(string); ok && propType == "object" {
+			if nestedProps, ok := prop["properties"].(map[string]interface{}); ok {
+				for _, nestedProp := range nestedProps {
+					if nestedPropMap, ok := nestedProp.(map[string]interface{}); ok {
+						if link, exists := nestedPropMap["link"].(string); exists {
+							if err := s.recursiveSchemaCheck(ctx, r, link, nil, currentPath, depth+1); err != nil {
+								return err
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // validateSchemaProperties recursively validates all properties and their links
 func (s *server) validateSchemaProperties(ctx context.Context, sourceModel string, r kv.Read, properties map[string]interface{}, path string) error {
 	for propName, propValue := range properties {
@@ -43,15 +140,12 @@ func (s *server) validateSchemaProperties(ctx context.Context, sourceModel strin
 
 		// Check direct link fields
 		if link, exists := prop["link"].(string); exists {
-
 			propType, ok := prop["type"].(string)
 			if !ok || propType != "string" {
 				return fmt.Errorf("property %s with link must be of type string", currentPath)
 			}
 
 			if sourceModel == link {
-				// return fmt.Errorf("property %s cannot link to itself", currentPath)
-				// actually its fine i think, we need a recursion check anyway later on the actual values
 				continue
 			}
 
@@ -78,13 +172,11 @@ func (s *server) validateSchemaProperties(ctx context.Context, sourceModel strin
 
 			// Check for direct links in array items
 			if link, exists := items["link"].(string); exists {
-				// Validate items type
 				itemsType, ok := items["type"].(string)
 				if !ok || itemsType != "string" {
 					return fmt.Errorf("linked items in %s must be of type string", currentPath)
 				}
 
-				// Validate the link exists
 				if err := s.validateLink(ctx, r, link); err != nil {
 					return err
 				}
@@ -147,7 +239,88 @@ func (s *server) validateSchemaSchema(ctx context.Context, object *openapi.Docum
 	defer r.Close()
 
 	// Recursively validate all properties and their links
-	return s.validateSchemaProperties(ctx, object.Id, r, properties, "")
+	if err := s.validateSchemaProperties(ctx, object.Id, r, properties, ""); err != nil {
+		return err
+	}
+
+	// Perform recursive schema validation with loop detection
+	return s.recursiveSchemaCheck(ctx, r, object.Id, object, []string{}, 0)
+}
+
+// validateNestedLinkedDocuments recursively validates linked documents in nested objects
+func (s *server) validateNestedLinkedDocuments(ctx context.Context, schema map[string]interface{}, object map[string]interface{}, propPath string) error {
+	properties, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	for propName, propValue := range properties {
+		prop, ok := propValue.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		currentPath := propPath
+		if currentPath != "" {
+			currentPath += "."
+		}
+		currentPath += propName
+
+		// Check if this property exists in the object
+		objectValue, exists := object[propName]
+		if !exists {
+			continue
+		}
+
+		// Validate direct links
+		if link, exists := prop["link"].(string); exists {
+			if id, ok := objectValue.(string); ok && id != "" {
+				if err := s.validateLinkedDocument(ctx, link, id); err != nil {
+					return fmt.Errorf("invalid link in property %s: %w", currentPath, err)
+				}
+			}
+		}
+
+		// Validate array items with links
+		if propType, ok := prop["type"].(string); ok && propType == "array" {
+			if items, ok := prop["items"].(map[string]interface{}); ok {
+				if link, exists := items["link"].(string); exists {
+					if arrayVal, ok := objectValue.([]interface{}); ok {
+						for i, item := range arrayVal {
+							if id, ok := item.(string); ok && id != "" {
+								if err := s.validateLinkedDocument(ctx, link, id); err != nil {
+									return fmt.Errorf("invalid link in property %s[%d]: %w", currentPath, i, err)
+								}
+							}
+						}
+					}
+				}
+
+				// Recursively validate nested objects in arrays
+				if itemType, ok := items["type"].(string); ok && itemType == "object" {
+					if arrayVal, ok := objectValue.([]interface{}); ok {
+						for i, item := range arrayVal {
+							if itemMap, ok := item.(map[string]interface{}); ok {
+								if err := s.validateNestedLinkedDocuments(ctx, items, itemMap, fmt.Sprintf("%s[%d]", currentPath, i)); err != nil {
+									return err
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Recursively validate nested objects
+		if propType, ok := prop["type"].(string); ok && propType == "object" {
+			if nestedObj, ok := objectValue.(map[string]interface{}); ok {
+				if err := s.validateNestedLinkedDocuments(ctx, prop, nestedObj, currentPath); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (s *server) validateObjectSchema(ctx context.Context, object *openapi.Document) (*openapi.Document, error) {
@@ -174,6 +347,13 @@ func (s *server) validateObjectSchema(ctx context.Context, object *openapi.Docum
 		schemaObj.Val = &v
 	}
 	(*schemaObj.Val)["type"] = "object"
+
+	// Validate linked documents recursively
+	if object.Val != nil {
+		if err := s.validateNestedLinkedDocuments(ctx, *schemaObj.Val, *object.Val, ""); err != nil {
+			return nil, err
+		}
+	}
 
 	schemaJson, err := json.Marshal(schemaObj.Val)
 	if err != nil {
