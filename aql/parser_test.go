@@ -41,7 +41,7 @@ func TestLexer(t *testing.T) {
 			},
 		},
 		{
-			`Book(id=123) { Author(active=true,,) { name } }`,
+			`Book(id=123) { author(active=true,,) { name } }`,
 			[]Token{
 				{TOKEN_IDENT, "Book"},
 				{TOKEN_LPAREN, "("},
@@ -50,7 +50,7 @@ func TestLexer(t *testing.T) {
 				{TOKEN_IDENT, "123"},
 				{TOKEN_RPAREN, ")"},
 				{TOKEN_LBRACE, "{"},
-				{TOKEN_IDENT, "Author"},
+				{TOKEN_IDENT, "author"},
 				{TOKEN_LPAREN, "("},
 				{TOKEN_IDENT, "active"},
 				{TOKEN_EQUALS, "="},
