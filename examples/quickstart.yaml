@@ -18,6 +18,7 @@ val:
 ---
 model:  com.example.Book
 id: a410d488-3d33-4e18-af26-6f818968b015
+version: 1
 val:
   name: Dune
   author: Frank Herbert
@@ -27,6 +28,7 @@ val:
 ---
 model:  com.example.Book
 id: fa2f095b-6156-4338-8b69-cda0a5090c83
+version: 1
 val:
   name: Dune
   author: Not Frank Herbert
@@ -36,6 +38,7 @@ val:
 ---
 model:  com.example.Book
 id: f1b3d38a-1c36-40a0-a7d3-076a21aa4bae
+version: 1
 val:
   name: Children of Dune
   author: Frank Herbert
@@ -45,6 +48,7 @@ val:
 ---
 model:  com.example.Book
 id: 165c8f38-7ee8-41ba-ae8e-619b291b8fae
+version: 1
 val:
   name: God Emperor of Dune
   author: Frank Herbert
@@ -54,6 +58,7 @@ val:
 ---
 model:  com.example.Book
 id: d0251359-4e98-472a-8173-8c303d7f64af
+version: 1
 val:
   name: Moby Dick
   author: Melville
@@ -63,174 +68,204 @@ val:
 ---
 model:  com.example.Book
 id: b1c23d45-6e78-9f01-a234-b567c8901d23
+version: 1
 val:
   name: The Midnight Garden
   author: Zelda Moonweaver
 ---
 model:  com.example.Book
 id: c2d34e56-7f89-0a12-b345-c678d9012e34
+version: 1
 val:
   name: Whispers of the Ancient Oak
   author: Thaddeus Quillmaster
 ---
 model:  com.example.Book
 id: d3e45f67-8a90-1b23-c456-d789e0123f45
+version: 1
 val:
   name: Digital Dreams in Analog Times
   author: Pixel VonByte
 ---
 model:  com.example.Book
 id: e4f56g78-9b01-2c34-d567-e890f1234g56
+version: 1
 val:
   name: The Last Equation
   author: Dr. Mathematica Jones
 ---
 model:  com.example.Book
 id: f5g67h89-0c12-3d45-e678-f901g2345h67
+version: 1
 val:
   name: Cooking with Stardust
   author: Chef Luna Galaxia
 ---
 model:  com.example.Book
 id: g6h78i90-1d23-4e56-f789-g012h3456i78
+version: 1
 val:
   name: The Quantum Butterfly Effect
   author: Professor Wavicle Smith
 ---
 model:  com.example.Book
 id: h7i89j01-2e34-5f67-g890-h123i4567j89
+version: 1
 val:
   name: Pirates of the Silicon Valley 2.0
   author: Binary Blackbeard
 ---
 model:  com.example.Book
 id: i8j90k12-3f45-6g78-h901-i234j5678k90
+version: 1
 val:
   name: The Artificial Heart
   author: Dr. Robot McHuman
 ---
 model:  com.example.Book
 id: j9k01l23-4g56-7h89-i012-j345k6789l01
+version: 1
 val:
   name: Time Travelers Anonymous
   author: Chronos Yesterday
 ---
 model:  com.example.Book
 id: k0l12m34-5h67-8i90-j123-k456l7890m12
+version: 1
 val:
   name: The Ghost in the Code
   author: Spectre Byteman
 ---
 model:  com.example.Book
 id: l1m23n45-6i78-9j01-k234-l567m8901n23
+version: 1
 val:
   name: Dragons in the Database
   author: Query Dragonrider
 ---
 model:  com.example.Book
 id: m2n34o56-7j89-0k12-l345-m678n9012o34
+version: 1
 val:
   name: The Caffeine Chronicles
   author: Bean Javasmith
 ---
 model:  com.example.Book
 id: n3o45p67-8k90-1l23-m456-n789o0123p45
+version: 1
 val:
   name: Debugging Love
   author: Error Handler
 ---
 model:  com.example.Book
 id: o4p56q78-9l01-2m34-n567-o890p1234q56
+version: 1
 val:
   name: The Silicon Prophecy
   author: Circuit Prophet
 ---
 model:  com.example.Book
 id: p5q67r89-0m12-3n45-o678-p901q2345r67
+version: 1
 val:
   name: Memories of Mars
   author: Red Dustwalker
 ---
 model:  com.example.Book
 id: q6r78s90-1n23-4o56-p789-q012r3456s78
+version: 1
 val:
   name: The Blockchain Murders
   author: Hash Detective
 ---
 model:  com.example.Book
 id: r7s89t01-2o34-5p67-q890-r123s4567t89
+version: 1
 val:
   name: Cloud Atlas Redux
   author: Nimbus Stratosphere
 ---
 model:  com.example.Book
 id: s8t90u12-3p45-6q78-r901-s234t5678u90
+version: 1
 val:
   name: The Quantum Kitchen
   author: Chef Schrödinger
 ---
 model:  com.example.Book
 id: t9u01v23-4q56-7r89-s012-t345u6789v01
+version: 1
 val:
   name: Robots Need Love Too
   author: Heart.exe
 ---
 model:  com.example.Book
 id: u0v12w34-5r67-8s90-t123-u456v7890w12
+version: 1
 val:
   name: The Last Programming Language
   author: Syntax Finale
 ---
 model:  com.example.Book
 id: v1w23x45-6s78-9t01-u234-v567w8901x23
+version: 1
 val:
   name: Neural Networks of the Heart
   author: Deep Feelings
 ---
 model:  com.example.Book
 id: w2x34y56-7t89-0u12-v345-w678x9012y34
+version: 1
 val:
   name: The Virtual Reality Virus
   author: Malware Phoenix
 ---
 model:  com.example.Book
 id: x3y45z67-8u90-1v23-w456-x789y0123z45
+version: 1
 val:
   name: Space Cookies
   author: Baker Nebula
 ---
 model:  com.example.Book
 id: y4z56a78-9v01-2w34-x567-y890z1234a56
+version: 1
 val:
   name: The Git Time Machine
   author: Branch Master
 ---
 model:  com.example.Book
 id: z5a67b89-0w12-3x45-y678-z901a2345b67
+version: 1
 val:
   name: Debugging the Universe
   author: Cosmic Coder
 ---
 model:  com.example.Book
 id: a6b78c90-1x23-4y56-z789-a012b3456c78
+version: 1
 val:
   name: The Infinite Loop
   author: Recursion Forever
 ---
 model:  com.example.Book
 id: b7c89d01-2y34-5z67-a890-b123c4567d89
+version: 1
 val:
   name: Quantum Coffee
   author: Barista Entanglement
 ---
 model:  com.example.Book
 id: c8d90e12-3z45-6a78-b901-c234d5678e90
+version: 1
 val:
   name: The ASCII Art of Love
   author: Unicode Heart
 ---
 model:  com.example.Book
 id: d9e01f23-4a56-7b89-c012-d345e6789f01
+version: 1
 val:
   name: Binary Sunset
   author: Zero OneWriter
+---

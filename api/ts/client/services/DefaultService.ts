@@ -71,6 +71,7 @@ export class DefaultService {
             mediaType: 'application/json',
             errors: {
                 400: `Validation Error`,
+                409: `Conflict`,
             },
         });
     }

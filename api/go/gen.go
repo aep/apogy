@@ -586,6 +586,7 @@ type PutDocumentResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *PutDocumentOK
 	JSON400      *ErrorResponse
+	JSON409      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -787,6 +788,13 @@ func ParsePutDocumentResponse(rsp *http.Response) (*PutDocumentResponse, error) 
 			return nil, err
 		}
 		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 
@@ -1044,6 +1052,15 @@ type PutDocument400JSONResponse ErrorResponse
 func (response PutDocument400JSONResponse) VisitPutDocumentResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutDocument409JSONResponse ErrorResponse
+
+func (response PutDocument409JSONResponse) VisitPutDocumentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 
 	return json.NewEncoder(w).Encode(response)
 }

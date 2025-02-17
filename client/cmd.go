@@ -131,6 +131,8 @@ func put(cmd *cobra.Command, args []string) {
 		if resp.JSON200 == nil {
 			if resp.JSON400 != nil {
 				log.Fatalf("rejected: %s", *resp.JSON400.Message)
+			} else if resp.JSON409 != nil {
+				log.Fatalf("rejected: %s", *resp.JSON409.Message)
 			} else {
 				log.Fatalf("Unexpected response: %v", resp.StatusCode())
 			}

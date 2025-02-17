@@ -2,7 +2,7 @@ all: go/gen.go ts/client/index.ts
 
 go/gen.go: openapi.yaml
 	mkdir -p go
-	oapi-codegen -config gen-go.yaml openapi.yaml
+	go run github.com/deepmap/oapi-codegen/cmd/oapi-codegen -config gen-go.yaml openapi.yaml
 
 
 ts/client/index.ts: openapi.yaml

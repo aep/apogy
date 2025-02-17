@@ -57,6 +57,12 @@ paths:
             schema:
               $ref: '#/components/schemas/Document'
       responses:
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '400':
           description: Validation Error
           content:
