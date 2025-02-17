@@ -14,8 +14,8 @@ import (
 const MAX_RESULTS = 200
 
 type findResult struct {
-	ids    []string
-	cursor *string
+	documents []openapi.Document
+	cursor    *string
 }
 
 func makeKey(model string, filter *openapi.Filter) []byte {
@@ -44,7 +44,7 @@ func makeKey(model string, filter *openapi.Filter) []byte {
 	return key
 }
 
-func (s *server) find(ctx context.Context, r kv.Read, model string, filter *openapi.Filter, limit int, cursor *string) (findResult, error) {
+func (s *server) find(ctx context.Context, r kv.Read, model string, filter *openapi.Filter, limit int, cursor *string, full bool) (findResult, error) {
 	start := makeKey(model, filter)
 	end := bytes.Clone(start)
 	end[len(end)-2] = end[len(end)-2] + 1
@@ -58,7 +58,7 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, filter *open
 	}
 
 	seen := make(map[string]bool)
-	var ids []string
+	var documents []openapi.Document
 	var lastKey []byte
 
 	for kv, err := range r.Iter(ctx, start, end) {
@@ -73,24 +73,33 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, filter *open
 		id := string(idx[len(idx)-2])
 		if !seen[id] {
 			seen[id] = true
-			ids = append(ids, id)
+			var doc openapi.Document
+			doc.Model = model
+			doc.Id = id
+			if full {
+				err := s.getDocument(ctx, model, id, &doc)
+				if err != nil {
+					return findResult{}, err
+				}
+			}
+			documents = append(documents, doc)
 			lastKey = kv.K
 		}
 
-		if len(ids) >= limit {
+		if len(documents) >= limit {
 			break
 		}
 	}
 
 	var nextCursor *string
-	if len(ids) >= limit && lastKey != nil {
+	if len(documents) >= limit && lastKey != nil {
 		nextKey := bytes.Clone(lastKey)
 		nextKey[len(nextKey)-2] = nextKey[len(nextKey)-2] + 2
 		cursor := base64.StdEncoding.EncodeToString(nextKey)
 		nextCursor = &cursor
 	}
 
-	return findResult{ids: ids, cursor: nextCursor}, nil
+	return findResult{documents: documents, cursor: nextCursor}, nil
 }
 
 func (s *server) SearchDocuments(c echo.Context) error {
@@ -113,35 +122,39 @@ func (s *server) SearchDocuments(c echo.Context) error {
 	if req.Limit != nil {
 		limit = *req.Limit
 	}
+	var full = false
+	if req.Full != nil {
+		full = *req.Full
+	}
 
 	var response openapi.SearchResponse
 
 	if req.Filters == nil || len(*req.Filters) == 0 {
-		result, err := s.find(c.Request().Context(), r, req.Model, nil, limit, req.Cursor)
+		result, err := s.find(c.Request().Context(), r, req.Model, nil, limit, req.Cursor, full)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
-		response.Ids = &result.ids
+		response.Documents = result.documents
 		response.Cursor = result.cursor
 		return c.JSON(http.StatusOK, response)
 	}
 
-	result, err := s.find(c.Request().Context(), r, req.Model, &(*req.Filters)[0], limit, req.Cursor)
+	result, err := s.find(c.Request().Context(), r, req.Model, &(*req.Filters)[0], limit, req.Cursor, full)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	var matchedIds []string
-	for _, id := range result.ids {
+	var matchedDocs []openapi.Document
+	for i, doc := range result.documents {
 		allMatch := true
 		for _, filter := range (*req.Filters)[1:] {
-			subResult, err := s.find(c.Request().Context(), r, req.Model, &filter, limit, nil)
+			subResult, err := s.find(c.Request().Context(), r, req.Model, &filter, limit, nil, false)
 			if err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 			}
 			found := false
-			for _, subId := range subResult.ids {
-				if id == subId {
+			for _, subId := range subResult.documents {
+				if doc.Id == subId.Id {
 					found = true
 					break
 				}
@@ -152,11 +165,11 @@ func (s *server) SearchDocuments(c echo.Context) error {
 			}
 		}
 		if allMatch {
-			matchedIds = append(matchedIds, id)
+			matchedDocs = append(matchedDocs, result.documents[i])
 		}
 	}
 
-	response.Ids = &matchedIds
+	response.Documents = matchedDocs
 	response.Cursor = result.cursor
 	return c.JSON(http.StatusOK, response)
 }

@@ -8,5 +8,9 @@ export type SearchRequest = {
     filters?: Array<Filter>;
     cursor?: string;
     limit?: number;
+    /**
+     * If true, return full documents instead of just the ids
+     */
+    full?: boolean;
 };
 

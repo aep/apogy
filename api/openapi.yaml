@@ -174,14 +174,19 @@ components:
           type: string
         limit:
           type: integer
+        full:
+          type: boolean
+          description: If true, return full documents instead of just the ids
 
     SearchResponse:
       type: object
+      required:
+        - documents
       properties:
-        ids:
+        documents:
           type: array
           items:
-            type: string
+            $ref: '#/components/schemas/Document'
         cursor:
           type: string
 

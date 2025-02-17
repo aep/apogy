@@ -87,14 +87,17 @@ type ReactorWorking = map[string]interface{}
 type SearchRequest struct {
 	Cursor  *string   `json:"cursor,omitempty"`
 	Filters *[]Filter `json:"filters,omitempty"`
-	Limit   *int      `json:"limit,omitempty"`
-	Model   string    `json:"model"`
+
+	// Full If true, return full documents instead of just the ids
+	Full  *bool  `json:"full,omitempty"`
+	Limit *int   `json:"limit,omitempty"`
+	Model string `json:"model"`
 }
 
 // SearchResponse defines model for SearchResponse.
 type SearchResponse struct {
-	Cursor *string   `json:"cursor,omitempty"`
-	Ids    *[]string `json:"ids,omitempty"`
+	Cursor    *string    `json:"cursor,omitempty"`
+	Documents []Document `json:"documents"`
 }
 
 // ValidationRequest defines model for ValidationRequest.

@@ -18,6 +18,7 @@ import (
 var (
 	file    string
 	address = "http://localhost:5052"
+	fullDoc bool
 
 	putCmd = &cobra.Command{
 		Use:     "put",
@@ -52,6 +53,8 @@ var (
 func RegisterCommands(root *cobra.Command) {
 	putCmd.Flags().StringVarP(&file, "file", "f", "", "Path to JSON/YAML file")
 	putCmd.MarkFlagRequired("file")
+
+	searchCmd.Flags().BoolVarP(&fullDoc, "full", "f", false, "Request full document for search results")
 
 	root.AddCommand(putCmd)
 	root.AddCommand(getCmd)
@@ -195,6 +198,7 @@ func search(cmd *cobra.Command, args []string) {
 			Model:   args[0],
 			Filters: &filters,
 			Cursor:  cursor,
+			Full:    &fullDoc,
 		}
 
 		resp, err := client.SearchDocumentsWithResponse(context.Background(), req)
@@ -206,14 +210,21 @@ func search(cmd *cobra.Command, args []string) {
 			log.Fatalf("Unexpected response: %v", resp.StatusCode())
 		}
 
-		if resp.JSON200.Ids != nil {
-			for _, id := range *resp.JSON200.Ids {
-				fmt.Printf("%s/%s\n", args[0], id)
+		for _, doc := range resp.JSON200.Documents {
+			if fullDoc {
+				enc, err := yaml.Marshal(doc)
+				if err != nil {
+					log.Fatalf("Failed to encode as YAML: %v", err)
+				}
+				os.Stdout.Write(enc)
+				fmt.Println("---")
+			} else {
+				fmt.Printf("%s/%s\n", args[0], doc.Id)
 			}
 		}
 
 		// If there's no cursor or no IDs returned, we've reached the end
-		if resp.JSON200.Cursor == nil || resp.JSON200.Ids == nil || len(*resp.JSON200.Ids) == 0 {
+		if resp.JSON200.Cursor == nil || len(resp.JSON200.Documents) == 0 {
 			break
 		}
 
@@ -292,3 +303,4 @@ func edit(cmd *cobra.Command, args []string) {
 	file = tmpfile.Name()
 	put(cmd, args)
 }
+

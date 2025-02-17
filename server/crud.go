@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"encoding/json"
+
 	"github.com/aep/apogy/api/go"
 )
 
@@ -159,15 +161,24 @@ func (s *server) PutDocument(c echo.Context) error {
 
 func (s *server) GetDocument(c echo.Context, model string, id string) error {
 
+	var doc openapi.Document
+	err := s.getDocument(c.Request().Context(), model, id, &doc)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, doc)
+}
+
+func (s *server) getDocument(ctx context.Context, model string, id string, doc *openapi.Document) error {
 	path, err := safeDBPath(model, id)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	r := s.kv.Read()
 	defer r.Close()
 
-	bytes, err := r.Get(c.Request().Context(), []byte(path))
+	bytes, err := r.Get(ctx, []byte(path))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
@@ -175,12 +186,11 @@ func (s *server) GetDocument(c echo.Context, model string, id string) error {
 		return echo.NewHTTPError(http.StatusNotFound, "document not found")
 	}
 
-	var doc openapi.Document
-	if err := json.Unmarshal(bytes, &doc); err != nil {
+	if err := json.Unmarshal(bytes, doc); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 	}
 
-	return c.JSON(http.StatusOK, doc)
+	return nil
 }
 
 func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
@@ -223,4 +233,3 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 
 	return c.NoContent(http.StatusOK)
 }
-
