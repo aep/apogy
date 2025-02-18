@@ -609,6 +609,7 @@ type SearchDocumentsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *SearchResponse
+	JSON400      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -821,6 +822,13 @@ func ParseSearchDocumentsResponse(rsp *http.Response) (*SearchDocumentsResponse,
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	}
 
@@ -1079,6 +1087,15 @@ type SearchDocuments200JSONResponse SearchResponse
 func (response SearchDocuments200JSONResponse) VisitSearchDocumentsResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SearchDocuments400JSONResponse ErrorResponse
+
+func (response SearchDocuments400JSONResponse) VisitSearchDocumentsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
 
 	return json.NewEncoder(w).Encode(response)
 }

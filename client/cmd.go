@@ -268,6 +268,9 @@ func query(cmd *cobra.Command, args []string) {
 		}
 
 		if resp.JSON200 == nil {
+			if resp.JSON400 != nil {
+				log.Fatalf("bad query: %s", *resp.JSON400.Message)
+			}
 			log.Fatalf("Unexpected response: %v", resp.StatusCode())
 		}
 

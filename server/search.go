@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/aep/apogy/api/go"
 	"github.com/aep/apogy/aql"
@@ -47,8 +48,27 @@ func makeKey(model string, filter *openapi.Filter) []byte {
 }
 
 func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string, full bool) (findResult, error) {
+
+	// if the filter is by id, just return the object directly
+	if filter != nil && filter.Key == "id" && filter.Equal != nil {
+		if id, ok := (*filter.Equal).(string); ok {
+
+			var doc openapi.Document
+			doc.Id = id
+			doc.Model = model
+			if full {
+				err := s.getDocument(ctx, model, id, &doc)
+				if err != nil {
+					return findResult{}, err
+				}
+			}
+			return findResult{documents: []openapi.Document{doc}}, nil
+		}
+	}
+
 	start := makeKey(model, filter)
 
+	// this is a sub filter
 	if id != "" {
 		if filter.Equal == nil || *filter.Equal == nil {
 			return findResult{}, echo.NewHTTPError(http.StatusBadRequest, "second filter currently can only be a k=v")
@@ -134,8 +154,22 @@ func (s *server) SearchDocuments(c echo.Context) error {
 		}
 	}
 
+	rsp, err := s.query(c.Request().Context(), req)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, rsp)
+}
+
+func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi.SearchResponse, error) {
+
 	if req.Model == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "Model is required")
+		return nil, echo.NewHTTPError(http.StatusBadRequest, "Model is required")
+	}
+
+	if req.Links != nil && len(*req.Links) > 0 {
+		var full = true
+		req.Full = &full
 	}
 
 	r := s.kv.Read()
@@ -153,51 +187,130 @@ func (s *server) SearchDocuments(c echo.Context) error {
 		full = *req.Full
 	}
 
-	var response openapi.SearchResponse
+	var cursor *string
+	var matchedDocs []openapi.Document
 
 	if req.Filters == nil || len(*req.Filters) == 0 {
-		result, err := s.find(c.Request().Context(), r, req.Model, "", nil, limit, req.Cursor, full)
+		result, err := s.find(ctx, r, req.Model, "", nil, limit, req.Cursor, full)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		response.Documents = result.documents
-		response.Cursor = result.cursor
-		return c.JSON(http.StatusOK, response)
-	}
+		matchedDocs = result.documents
+		cursor = result.cursor
 
-	result, err := s.find(c.Request().Context(), r, req.Model, "", &(*req.Filters)[0], limit, req.Cursor, full)
-	if err != nil {
-		return err
-	}
+	} else {
 
-	var matchedDocs []openapi.Document
-	for i, doc := range result.documents {
-		allMatch := true
-		for _, filter := range (*req.Filters)[1:] {
+		result, err := s.find(ctx, r, req.Model, "", &(*req.Filters)[0], limit, req.Cursor, full)
+		if err != nil {
+			return nil, err
+		}
+		cursor = result.cursor
 
-			subResult, err := s.find(c.Request().Context(), r, req.Model, doc.Id, &filter, 1, nil, false)
-			if err != nil {
-				return err
-			}
+		for i, doc := range result.documents {
+			allMatch := true
+			for _, filter := range (*req.Filters)[1:] {
 
-			found := false
-			for _, subId := range subResult.documents {
-				if doc.Id == subId.Id {
-					found = true
+				subResult, err := s.find(ctx, r, req.Model, doc.Id, &filter, 1, nil, false)
+				if err != nil {
+					return nil, err
+				}
+
+				found := false
+				for _, subId := range subResult.documents {
+					if doc.Id == subId.Id {
+						found = true
+						break
+					}
+				}
+				if !found {
+					allMatch = false
 					break
 				}
 			}
-			if !found {
-				allMatch = false
-				break
+			if allMatch {
+				matchedDocs = append(matchedDocs, result.documents[i])
 			}
-		}
-		if allMatch {
-			matchedDocs = append(matchedDocs, result.documents[i])
 		}
 	}
 
-	response.Documents = matchedDocs
-	response.Cursor = result.cursor
-	return c.JSON(http.StatusOK, response)
+	if req.Links != nil && len(*req.Links) > 0 {
+
+		var modelDoc openapi.Document
+		err := s.getDocument(ctx, "Model", req.Model, &modelDoc)
+		if err != nil {
+			return nil, err
+		}
+
+		if modelDoc.Val == nil {
+			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid properties")
+		}
+
+		properties, ok := (*modelDoc.Val)["properties"].(map[string]interface{})
+		if !ok {
+			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid properties")
+		}
+
+		for i := range matchedDocs {
+
+			vals := matchedDocs[i].Val
+			if vals == nil {
+				continue
+			}
+
+			for _, link := range *req.Links {
+
+				if !strings.HasPrefix(link.Model, "val.") {
+					return nil, echo.NewHTTPError(http.StatusBadRequest, "unable to resolve subquery: did you mean val."+link.Model+" ?")
+				}
+
+				propname := strings.TrimPrefix(link.Model, "val.")
+				propDef, ok := properties[propname]
+				if !ok {
+					return nil, echo.NewHTTPError(http.StatusBadRequest, "unable to resolve subquery: model has no property "+propname)
+				}
+
+				propMap, ok := propDef.(map[string]interface{})
+				if !ok {
+					continue
+				}
+
+				// Check if this property has a link
+				linkedModel, ok := propMap["link"].(string)
+				if !ok {
+					continue
+				}
+
+				val, ok := (*vals)[propname]
+				if !ok {
+					continue
+				}
+
+				link.Model = linkedModel
+				if link.Filters == nil {
+					link.Filters = new([]openapi.Filter)
+				}
+				*link.Filters = append(*link.Filters, openapi.Filter{
+					Key:   "id",
+					Equal: &val,
+				})
+
+				linkResult, err := s.query(ctx, link)
+				if err != nil {
+					// TODO what to do with dangling link?
+					continue
+				}
+
+				if len(linkResult.Documents) < 1 {
+					continue
+				}
+
+				(*matchedDocs[i].Val)[propname] = linkResult.Documents[0]
+			}
+		}
+	}
+
+	return &openapi.SearchResponse{
+		Documents: matchedDocs,
+		Cursor:    cursor,
+	}, nil
 }

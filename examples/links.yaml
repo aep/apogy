@@ -42,6 +42,12 @@ id: a410d488-3d33-4e18-af26-6f818968b015
 val:
   name: bob
   author: ed0d72c4-2274-4def-97a5-cf1e5c8e4fcf
+---
+model:  com.example.Book
+id: a410d488-3d33-4e18-af26-6f818968b015
+val:
+  name: bob
+  author: ed0d72c4-2274-4def-97a5-cf1e5c8e4fcf
   coauthors:
     - bob
 ---
