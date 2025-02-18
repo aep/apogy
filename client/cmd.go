@@ -41,6 +41,14 @@ var (
 		Run:   edit,
 	}
 
+	rmCmd = &cobra.Command{
+		Aliases: []string{"delete", "del"},
+		Use:     "rm [model/id]",
+		Short:   "Delete a document",
+		Args:    cobra.ExactArgs(1),
+		Run:     del,
+	}
+
 	searchCmd = &cobra.Command{
 		Use:     "search [model] [q]",
 		Aliases: []string{"find"},
@@ -69,6 +77,7 @@ func RegisterCommands(root *cobra.Command) {
 	root.AddCommand(editCmd)
 	root.AddCommand(searchCmd)
 	root.AddCommand(qCmd)
+	root.AddCommand(rmCmd)
 }
 
 func parseFile(file string) ([]openapi.Document, error) {
@@ -84,7 +93,7 @@ func parseFile(file string) ([]openapi.Document, error) {
 		return nil, fmt.Errorf("failed to read file: %v", err)
 	}
 
-	docs := strings.Split(string(data), "---\n")
+	docs := strings.Split(string(data), "\n---\n")
 	var objects []openapi.Document
 
 	for _, doc := range docs {
@@ -168,6 +177,27 @@ func get(cmd *cobra.Command, args []string) {
 		log.Fatalf("Failed to encode as YAML: %v", err)
 	}
 	os.Stdout.Write(enc)
+}
+
+func del(cmd *cobra.Command, args []string) {
+	parts := strings.Split(args[0], "/")
+	if len(parts) != 2 {
+		log.Fatal("Invalid id format. Expected model/id")
+	}
+	model, id := parts[0], parts[1]
+
+	client, err := getClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resp, err := client.DeleteDocumentWithResponse(context.Background(), model, id)
+	if err != nil {
+		log.Fatalf("Failed to get document: %v", err)
+	}
+	if resp.StatusCode() != 200 && resp.StatusCode() != 404 {
+		log.Fatalf("Unexpected response: %v", resp.StatusCode())
+	}
 }
 
 func parseFilter(arg string) openapi.Filter {

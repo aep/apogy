@@ -219,6 +219,16 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 	}
 
+	switch doc.Model {
+	case "Model":
+		err := s.checkNothingNeedsModel(c.Request().Context(), doc.Id)
+		if err != nil {
+			return err
+		}
+	case "Reactor":
+	default:
+	}
+
 	// Remove indexes first
 	if err := s.deleteIndex(w, &doc); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))

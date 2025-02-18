@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/aep/apogy/api/go"
@@ -21,13 +24,13 @@ type findResult struct {
 	cursor    *string
 }
 
-func makeKey(model string, filter *openapi.Filter) []byte {
+func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 	var key []byte
 	if filter == nil {
 		key = []byte{'o', 0xff}
 		key = append(key, []byte(model)...)
 		key = append(key, 0xff)
-		return key
+		return key, nil
 	}
 
 	key = []byte{'f', 0xff}
@@ -40,11 +43,13 @@ func makeKey(model string, filter *openapi.Filter) []byte {
 			key = append(key, 0xff)
 			key = append(key, []byte(strVal)...)
 			key = append(key, 0xff)
+		} else {
+			return nil, fmt.Errorf("%T can't be used as search val", *filter.Equal)
 		}
 	} else {
 		key = append(key, 0x00)
 	}
-	return key
+	return key, nil
 }
 
 func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string, full bool) (findResult, error) {
@@ -66,7 +71,10 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 		}
 	}
 
-	start := makeKey(model, filter)
+	start, err := makeKey(model, filter)
+	if err != nil {
+		return findResult{}, echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 
 	// this is a sub filter
 	if id != "" {
@@ -153,6 +161,8 @@ func (s *server) SearchDocuments(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 		}
 	}
+
+	json.NewEncoder(os.Stderr).Encode(req)
 
 	rsp, err := s.query(c.Request().Context(), req)
 	if err != nil {

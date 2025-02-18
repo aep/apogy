@@ -199,7 +199,7 @@ func (s *server) validateSchemaSchema(ctx context.Context, object *openapi.Docum
 	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
 		return r == '.'
 	})
-	if len(idparts) < 3 {
+	if len(idparts) < 2 {
 		return echo.NewHTTPError(http.StatusBadRequest, "validation error (id): must be a domain , like com.example.Book")
 	}
 
