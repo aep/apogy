@@ -196,6 +196,9 @@ func del(cmd *cobra.Command, args []string) {
 		log.Fatalf("Failed to get document: %v", err)
 	}
 	if resp.StatusCode() != 200 && resp.StatusCode() != 404 {
+		if resp.JSON400 != nil {
+			log.Fatalf("failed to delete: %s", *resp.JSON400.Message)
+		}
 		log.Fatalf("Unexpected response: %v", resp.StatusCode())
 	}
 }

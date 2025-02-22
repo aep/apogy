@@ -653,6 +653,7 @@ func (r ReactorLoopResponse) StatusCode() int {
 type DeleteDocumentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON400      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -872,6 +873,16 @@ func ParseDeleteDocumentResponse(rsp *http.Response) (*DeleteDocumentResponse, e
 	response := &DeleteDocumentResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	}
 
 	return response, nil
@@ -1132,6 +1143,15 @@ type DeleteDocument200Response struct {
 func (response DeleteDocument200Response) VisitDeleteDocumentResponse(w http.ResponseWriter) error {
 	w.WriteHeader(200)
 	return nil
+}
+
+type DeleteDocument400JSONResponse ErrorResponse
+
+func (response DeleteDocument400JSONResponse) VisitDeleteDocumentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type DeleteDocument404Response struct {

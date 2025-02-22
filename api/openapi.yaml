@@ -45,6 +45,12 @@ paths:
           description: Successfully deleted document
         '404':
           description: Document not found
+        '400':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     
   /v1:
     post:

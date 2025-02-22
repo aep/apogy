@@ -51,6 +51,7 @@ export class DefaultService {
                 'id': id,
             },
             errors: {
+                400: `Validation Error`,
                 404: `Document not found`,
             },
         });

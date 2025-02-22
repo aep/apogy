@@ -227,6 +227,14 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 		}
 	case "Reactor":
 	default:
+		var schema openapi.Document
+		err := s.getDocument(c.Request().Context(), "Model", doc.Model, &schema)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "cannot load model")
+		}
+		if err := s.validate(c.Request().Context(), &schema, &doc, nil); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
 	}
 
 	// Remove indexes first

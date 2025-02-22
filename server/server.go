@@ -38,6 +38,7 @@ func Main() {
 
 	s := newServer(kv, st)
 	e := echo.New()
+	e.HideBanner = true
 
 	// Add logging middleware
 	e.Use(loggingMiddleware)
@@ -47,7 +48,7 @@ func Main() {
 	openapi.RegisterHandlers(e, s)
 
 	// Start server
-	fmt.Println("Starting Echo server on :5052")
+	fmt.Println("⇨ APOGY [tikv, solo]")
 	if err := e.Start(":5052"); err != http.ErrServerClosed {
 		panic(fmt.Sprintf("failed to serve: %v", err))
 	}

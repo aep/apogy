@@ -300,7 +300,7 @@ func (s *server) validateReactorSchema(ctx context.Context, object *openapi.Docu
 	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
 		return r == '.'
 	})
-	if len(idparts) < 3 {
+	if len(idparts) < 2 {
 		return fmt.Errorf("validation error (id): must be a domain, like com.example.Book")
 	}
 	return nil
