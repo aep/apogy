@@ -101,9 +101,7 @@ func (w *TikvWrite) Del(key []byte) error {
 }
 
 func (r *TikvWrite) Iter(ctx context.Context, start []byte, end []byte) iter.Seq2[KeyAndValue, error] {
-
 	return func(yield func(KeyAndValue, error) bool) {
-
 		it, err := r.txn.Iter(start, end)
 		if err != nil {
 			log.Debug("[tikv].Iter:", "start", string(start), "end", string(end), "err", err)
@@ -161,9 +159,7 @@ func (r *TikvRead) SetKeyOnly(b bool) {
 }
 
 func (r *TikvRead) Iter(ctx context.Context, start []byte, end []byte) iter.Seq2[KeyAndValue, error] {
-
 	return func(yield func(KeyAndValue, error) bool) {
-
 		it, err := r.txn.Iter(start, end)
 		if err != nil {
 			log.Debug("[tikv].Iter:", "start", string(start), "end", string(end), "err", err)
@@ -210,7 +206,11 @@ func (t *Tikv) Read() Read {
 }
 
 func NewTikv() (KV, error) {
-	k, err := txnkv.NewClient([]string{"127.0.0.1:2379"})
+	tikvep := os.Getenv("PD_ENDPOINT")
+	if tikvep == "" {
+		tikvep = "127.0.0.1:2379"
+	}
+	k, err := txnkv.NewClient([]string{tikvep})
 	if err != nil {
 		return nil, err
 	}

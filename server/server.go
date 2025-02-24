@@ -2,12 +2,13 @@ package server
 
 import (
 	"fmt"
-	"github.com/aep/apogy/api/go"
-	"github.com/aep/apogy/bus"
-	"github.com/aep/apogy/kv"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/aep/apogy/api/go"
+	"github.com/aep/apogy/bus"
+	"github.com/aep/apogy/kv"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -49,7 +50,7 @@ func Main() {
 
 	// Start server
 	fmt.Println("⇨ APOGY [tikv, solo]")
-	if err := e.Start(":5052"); err != http.ErrServerClosed {
+	if err := e.Start(":27666"); err != http.ErrServerClosed {
 		panic(fmt.Sprintf("failed to serve: %v", err))
 	}
 }
