@@ -1,0 +1,133 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pd
+spec:
+  ports:
+    - name: client
+      port: 2379
+      targetPort: 2379
+    - name: peer
+      port: 2380
+      targetPort: 2380
+  selector:
+    app: pd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pd
+  template:
+    metadata:
+      labels:
+        app: pd
+    spec:
+      containers:
+      - name: pd
+        image: pingcap/pd:latest
+        args:
+          - --name=pd
+          - --data-dir=/data
+          - --client-urls=http://0.0.0.0:2379
+          - --advertise-client-urls=http://pd:2379
+          - --peer-urls=http://0.0.0.0:2380
+          - --log-file=/dev/stderr
+        ports:
+        - containerPort: 2379
+          name: client
+        - containerPort: 2380
+          name: peer
+        volumeMounts:
+        - name: pd-data
+          mountPath: /data
+      volumes:
+      - name: pd-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tikv
+spec:
+  ports:
+    - port: 20160
+      targetPort: 20160
+  selector:
+    app: tikv
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tikv
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tikv
+  template:
+    metadata:
+      labels:
+        app: tikv
+    spec:
+      containers:
+      - name: tikv
+        image: pingcap/tikv:latest
+        args:
+          - --addr=0.0.0.0:20160
+          - --advertise-addr=$(POD_IP):20160
+          - --pd=http://pd:2379
+          - --data-dir=/data
+          - --log-file=/dev/stderr
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        ports:
+        - containerPort: 20160
+        volumeMounts:
+        - name: tikv-data
+          mountPath: /data
+      volumes:
+      - name: tikv-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apogy
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: apogy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apogy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apogy
+  template:
+    metadata:
+      labels:
+        app: apogy
+    spec:
+      containers:
+      - name: apogy
+        image: ghcr.io/aep/apogy:v0.0.4
+        ports:
+        - containerPort: 27666
+        args: [ 'server' ]
+        env:
+        - name: TIKV_ENDPOINT
+          value: "tikv:20160"
