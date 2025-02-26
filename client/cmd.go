@@ -17,7 +17,7 @@ import (
 
 var (
 	file    string
-	address = "http://localhost:27666"
+
 	fullDoc bool
 
 	putCmd = &cobra.Command{
@@ -113,7 +113,12 @@ func parseFile(file string) ([]openapi.Document, error) {
 }
 
 func getClient() (*openapi.ClientWithResponses, error) {
-	client, err := openapi.NewClientWithResponses(address)
+	addr := os.Getenv("APOGY_ADDR")
+	if addr == "" {
+		addr = "http://localhost:27666"
+	}
+
+	client, err := openapi.NewClientWithResponses(addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %v", err)
 	}

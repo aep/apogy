@@ -1,9 +1,12 @@
 package server
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/aep/apogy/api/go"
@@ -30,7 +33,7 @@ func newServer(kv kv.KV, bs bus.Bus) *server {
 	return nu
 }
 
-func Main() {
+func Main(caCertPath, serverCertPath, serverKeyPath string) {
 	kv, err := kv.NewTikv()
 	if err != nil {
 		panic(err)
@@ -53,12 +56,42 @@ func Main() {
 	openapi.RegisterHandlers(e, s)
 
 	// Start server
-	fmt.Println("⇨ APOGY [tikv, solo]")
-
 	s.startup()
 
-	if err := e.Start(":27666"); err != http.ErrServerClosed {
-		panic(fmt.Sprintf("failed to serve: %v", err))
+	if caCertPath != "" && serverCertPath != "" && serverKeyPath != "" {
+		// Load CA certificate for client verification
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			panic(fmt.Sprintf("failed to read CA certificate: %v", err))
+		}
+
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			panic("failed to append CA certificate to pool")
+		}
+
+		// Configure TLS with client certificate verification
+		tlsConfig := &tls.Config{
+			ClientCAs:  caCertPool,
+			ClientAuth: tls.RequireAndVerifyClientCert,
+			MinVersion: tls.VersionTLS12,
+		}
+
+		s := &http.Server{
+			Addr:      ":27666",
+			TLSConfig: tlsConfig,
+			Handler:   e,
+		}
+
+		fmt.Println("⇨ APOGY [tikv, solo, mTLS]")
+		if err := s.ListenAndServeTLS(serverCertPath, serverKeyPath); err != http.ErrServerClosed {
+			panic(fmt.Sprintf("failed to serve with TLS: %v", err))
+		}
+	} else {
+		fmt.Println("⇨ APOGY [tikv, solo, insecure]")
+		if err := e.Start(":27666"); err != http.ErrServerClosed {
+			panic(fmt.Sprintf("failed to serve: %v", err))
+		}
 	}
 }
 
