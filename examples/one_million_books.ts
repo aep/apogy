@@ -3,7 +3,7 @@ import { DefaultService, Document, OpenAPI } from '../api/ts/client';
 import { randomUUID } from 'crypto';
 
 // Configure the OpenAPI client
-OpenAPI.BASE = 'http://localhost:5052';
+OpenAPI.BASE = 'http://localhost:27666';
 
 // List of possible author first names and last names for random generation
 const firstNames = [

@@ -4,8 +4,6 @@
 /* eslint-disable */
 import type { Document } from '../models/Document';
 import type { PutDocumentOK } from '../models/PutDocumentOK';
-import type { ReactorIn } from '../models/ReactorIn';
-import type { ReactorOut } from '../models/ReactorOut';
 import type { SearchRequest } from '../models/SearchRequest';
 import type { SearchResponse } from '../models/SearchResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -93,22 +91,6 @@ export class DefaultService {
             errors: {
                 400: `Validation Error`,
             },
-        });
-    }
-    /**
-     * Bidirectional streaming for reactor operations
-     * @param requestBody
-     * @returns ReactorOut Successful connection
-     * @throws ApiError
-     */
-    public static reactorLoop(
-        requestBody: ReactorIn,
-    ): CancelablePromise<ReactorOut> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/v1/reactor',
-            body: requestBody,
-            mediaType: 'application/json',
         });
     }
 }

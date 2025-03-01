@@ -8,41 +8,34 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/echo/v4"
-
-	"encoding/json"
-
 	"github.com/aep/apogy/api/go"
+	"github.com/labstack/echo/v4"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func (s *server) PutDocument(c echo.Context) error {
 
-	var doc openapi.Document
-	if err := c.Bind(&doc); err != nil {
+	var doc = new(openapi.Document)
+	if err := c.Bind(doc); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 	}
 
-	if err := s.validateMeta(&doc); err != nil {
+	if err := s.validateMeta(doc); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	var schema *openapi.Document
 	var err error
 
 	switch doc.Model {
 	case "Model":
-		if err := s.validateSchemaSchema(c.Request().Context(), &doc); err != nil {
+		if err := s.validateSchemaSchema(c.Request().Context(), doc); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
 		}
 	case "Reactor":
-		if err := s.validateReactorSchema(c.Request().Context(), &doc); err != nil {
+		if err := s.validateReactorSchema(c.Request().Context(), doc); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
 		}
 	default:
-		schema, err = s.validateObjectSchema(c.Request().Context(), &doc)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
-		}
 	}
 
 	w2 := s.kv.Write()
@@ -70,7 +63,7 @@ func (s *server) PutDocument(c echo.Context) error {
 			}
 		} else if len(bytes) > 0 {
 			old = new(openapi.Document)
-			if err := json.Unmarshal(bytes, old); err != nil {
+			if err := msgpack.Unmarshal(bytes, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
@@ -105,7 +98,7 @@ func (s *server) PutDocument(c echo.Context) error {
 			}
 		} else if len(bytes) > 0 {
 			old = new(openapi.Document)
-			if err := json.Unmarshal(bytes, old); err != nil {
+			if err := msgpack.Unmarshal(bytes, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
@@ -127,20 +120,19 @@ func (s *server) PutDocument(c echo.Context) error {
 	}
 	*doc.Version++
 
-	if schema != nil {
-		if err := s.validate(c.Request().Context(), schema, old, &doc); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		}
+	doc, err = s.ro.Validate(c.Request().Context(), old, doc)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	bytes, err := json.Marshal(doc)
+	bytes, err := msgpack.Marshal(doc)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("marshal error: %v", err))
 	}
 
 	w2.Put([]byte(path), bytes)
 
-	if err := s.createIndex(w2, &doc); err != nil {
+	if err := s.createIndex(w2, doc); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -148,10 +140,9 @@ func (s *server) PutDocument(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 	}
 
-	if schema != nil {
-		if err := s.reconcile(c.Request().Context(), schema, &doc); err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
+	err = s.ro.Reconcile(c.Request().Context(), old, doc)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, openapi.PutDocumentOK{
@@ -166,6 +157,11 @@ func (s *server) GetDocument(c echo.Context, model string, id string) error {
 	if err != nil {
 		return err
 	}
+
+	if model == "Reactor" {
+		s.ro.Status(c.Request().Context(), &doc)
+	}
+
 	return c.JSON(http.StatusOK, doc)
 }
 
@@ -186,7 +182,7 @@ func (s *server) getDocument(ctx context.Context, model string, id string, doc *
 		return echo.NewHTTPError(http.StatusNotFound, "document not found")
 	}
 
-	if err := json.Unmarshal(bytes, doc); err != nil {
+	if err := msgpack.Unmarshal(bytes, doc); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 	}
 
@@ -214,8 +210,8 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 		return echo.NewHTTPError(http.StatusNotFound, "document not found")
 	}
 
-	var doc openapi.Document
-	if err := json.Unmarshal(bytes, &doc); err != nil {
+	var doc = new(openapi.Document)
+	if err := msgpack.Unmarshal(bytes, doc); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 	}
 
@@ -232,13 +228,15 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, "cannot load model")
 		}
-		if err := s.validate(c.Request().Context(), &schema, &doc, nil); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		}
+	}
+
+	_, err = s.ro.Validate(c.Request().Context(), doc, nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	// Remove indexes first
-	if err := s.deleteIndex(w, &doc); err != nil {
+	if err := s.deleteIndex(w, doc); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
 	}
 
@@ -247,6 +245,11 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 
 	if err := w.Commit(c.Request().Context()); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
+	}
+
+	err = s.ro.Reconcile(c.Request().Context(), doc, nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	return c.NoContent(http.StatusOK)

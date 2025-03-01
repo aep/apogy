@@ -1,43 +1,39 @@
 ---
 model: Reactor
-id: com.example.MailTemplateValidator
+id: com.example.MailTemplateSchema
 val:
-  url: http://localhost:8823/validator/
+  runtime: cue
+  source: |
+    #Email: string & =~#"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"#
+    
+    val: {
+      subject:  string
+      body:     string
+      to:       [...#Email]
+      unrolled: bool | *false
+    }
 ---
 model: Reactor
 id: com.example.MailTemplateUnroller
 val:
-  url: http://localhost:8823/unroller/
+  runtime: http
+  url: http://localhost:8823/
 ---
 model: Model
 id: com.example.EmailTemplate
 val:
-  properties:
-    subject:
-      type: string
-    body:
-      type: string
-    to:
-      type: array
-      items:
-        type: string
-    unrolled:
-      type: boolean
   reactors:
+    - Immutable
     - com.example.MailTemplateValidator
+    - com.example.MailTemplateUnroller
 ---
 model: Model
 id: com.example.Email
 val:
-  properties:
-    newsletter:
-      type: string
-    to:
-      type: string
-    sent:
-      type: boolean
-  reactors:
-    - com.example.MailSender
+  schema:
+    newsletter: string
+    to: string
+    sent: string
 ---
 model: com.example.EmailTemplate
 id: bigWinner2025

@@ -109,24 +109,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/SearchResponse'
 
-  /v1/reactor:
-    get:
-      operationId: reactorLoop
-      summary: Bidirectional streaming for reactor operations
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ReactorIn'
-      responses:
-        '200':
-          description: Successful connection
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReactorOut'
-
 components:
   schemas:
     History:

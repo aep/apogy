@@ -139,15 +139,18 @@ func put(cmd *cobra.Command, args []string) {
 
 		if resp.JSON200 == nil {
 			if resp.JSON400 != nil {
-				log.Fatalf("rejected: %s", *resp.JSON400.Message)
+				fmt.Fprintf(os.Stderr, "%s %s rejected: %s\n", obj.Model, obj.Id, *resp.JSON400.Message)
+				os.Exit(2)
 			} else if resp.JSON409 != nil {
-				log.Fatalf("rejected: %s", *resp.JSON409.Message)
+				fmt.Fprintf(os.Stderr, "%s %s rejected: %s\n", obj.Model, obj.Id, *resp.JSON409.Message)
+				os.Exit(9)
 			} else {
-				log.Fatalf("Unexpected response: %v", resp.StatusCode())
+				fmt.Fprintf(os.Stderr, "Unexpected response: %v\n", resp.StatusCode())
+				os.Exit(10)
 			}
 		}
 
-		fmt.Println(resp.JSON200.Path)
+		fmt.Println(obj.Model, obj.Id, "accepted")
 	}
 }
 

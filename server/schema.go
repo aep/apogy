@@ -1,18 +1,47 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/aep/apogy/api/go"
-	"strings"
-
-	"github.com/aep/apogy/kv"
 	"github.com/labstack/echo/v4"
-	"github.com/santhosh-tekuri/jsonschema/v5"
 	"net/http"
+	"strings"
 )
+
+func (s *server) validateReactorSchema(ctx context.Context, object *openapi.Document) error {
+	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
+		return r == '.'
+	})
+	if len(idparts) < 2 {
+		return fmt.Errorf("validation error (id): must be a domain, like com.example.Book")
+	}
+	return nil
+}
+
+func (s *server) validateSchemaSchema(ctx context.Context, object *openapi.Document) error {
+	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
+		return r == '.'
+	})
+	if len(idparts) < 2 {
+		return echo.NewHTTPError(http.StatusBadRequest, "validation error (id): must be a domain , like com.example.Book")
+	}
+
+	/*
+		// Recursively validate all properties and their links
+		if err := s.validateSchemaProperties(ctx, object.Id, r, properties, ""); err != nil {
+			return err
+		}
+
+		return s.recursiveSchemaCheck(ctx, r, object.Id, object, []string{}, 0)
+	*/
+
+	return nil
+}
+
+// FIXME this whole thing needs to go into a reactor
+
+/*
 
 // validateLink checks if a linked model exists
 func (s *server) validateLink(ctx context.Context, r kv.Read, link string) error {
@@ -66,7 +95,7 @@ func (s *server) recursiveSchemaCheck(ctx context.Context, r kv.Read, model stri
 		}
 
 		modelDoc = &openapi.Document{}
-		if err := json.Unmarshal(modelData, modelDoc); err != nil {
+		if err := msgpack.Unmarshal(modelData, modelDoc); err != nil {
 			return fmt.Errorf("error unmarshaling model %s: %w", model, err)
 		}
 	}
@@ -195,57 +224,6 @@ func (s *server) validateSchemaProperties(ctx context.Context, sourceModel strin
 	return nil
 }
 
-func (s *server) validateSchemaSchema(ctx context.Context, object *openapi.Document) error {
-	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
-		return r == '.'
-	})
-	if len(idparts) < 2 {
-		return echo.NewHTTPError(http.StatusBadRequest, "validation error (id): must be a domain , like com.example.Book")
-	}
-
-	// First validate the basic schema structure
-	compiler := jsonschema.NewCompiler()
-	ob, err := json.Marshal(object.Val)
-	if err != nil {
-		return fmt.Errorf("failed to marshal schema: %w", err)
-	}
-
-	err = compiler.AddResource(object.Id, strings.NewReader(string(ob)))
-	if err != nil {
-		return fmt.Errorf("failed to add schema resource: %w", err)
-	}
-
-	// Attempt to compile the schema
-	_, err = compiler.Compile(object.Id)
-	if err != nil {
-		switch v := err.(type) {
-		case *jsonschema.SchemaError:
-			return fmt.Errorf("invalid schema: %w", v.Err)
-		default:
-			return fmt.Errorf("failed to compile schema: %w", err)
-		}
-	}
-
-	if object.Val == nil {
-		return fmt.Errorf("invalid schema format")
-	}
-
-	properties, ok := (*object.Val)["properties"].(map[string]interface{})
-	if !ok {
-		return nil // No properties to validate
-	}
-
-	r := s.kv.Read()
-	defer r.Close()
-
-	// Recursively validate all properties and their links
-	if err := s.validateSchemaProperties(ctx, object.Id, r, properties, ""); err != nil {
-		return err
-	}
-
-	// Perform recursive schema validation with loop detection
-	return s.recursiveSchemaCheck(ctx, r, object.Id, object, []string{}, 0)
-}
 
 // validateNestedLinkedDocuments recursively validates linked documents in nested objects
 func (s *server) validateNestedLinkedDocuments(ctx context.Context, schema map[string]interface{}, object map[string]interface{}, propPath string) error {
@@ -337,7 +315,7 @@ func (s *server) validateObjectSchema(ctx context.Context, object *openapi.Docum
 	}
 
 	var schemaObj = new(openapi.Document)
-	err = json.Unmarshal(schemaData, schemaObj)
+	err = msgpack.Unmarshal(schemaData, schemaObj)
 	if err != nil {
 		return nil, fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}
@@ -355,7 +333,7 @@ func (s *server) validateObjectSchema(ctx context.Context, object *openapi.Docum
 		}
 	}
 
-	schemaJson, err := json.Marshal(schemaObj.Val)
+	schemaJson, err := msgpack.Marshal(schemaObj.Val)
 	if err != nil {
 		return nil, fmt.Errorf("cannot load model '%s': %w", object.Model, err)
 	}
@@ -382,3 +360,6 @@ func (s *server) validateObjectSchema(ctx context.Context, object *openapi.Docum
 
 	return schemaObj, nil
 }
+
+*/
+

@@ -2,20 +2,15 @@
 model:   Reactor
 id:      com.example.Book
 val:
-  runtime: jsonschema
-  properties:
-    name:
-      type: string
-    author:
-      type: string
-    reviews:
-      type: array
-      items:
-        type: object
-    isbn:
-      type: string
-  required:
-    - name
+  runtime: cue
+  source: |
+    id: string
+    val: {
+      name: string
+      author: string
+      reviews?: [...{...}]
+      isbn?: string
+    }
 ---
 model:   Model
 id:      com.example.Book
@@ -264,7 +259,6 @@ val:
 ---
 model:  com.example.Book
 id: c8d90e12-3z45-6a78-b901-c234d5678e90
-version: 1
 val:
   name: The ASCII Art of Love
   author: Unicode Heart

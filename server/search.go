@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/aep/apogy/api/go"
@@ -181,6 +179,13 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 		nextCursor = &cursor
 	}
 
+	if model == "Reactor" && full {
+		for i, doc := range documents {
+			s.ro.Status(ctx, &doc)
+			documents[i] = doc
+		}
+	}
+
 	return findResult{documents: documents, cursor: nextCursor}, nil
 }
 
@@ -201,8 +206,6 @@ func (s *server) SearchDocuments(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 		}
 	}
-
-	json.NewEncoder(os.Stderr).Encode(req)
 
 	rsp, err := s.query(c.Request().Context(), req)
 	if err != nil {

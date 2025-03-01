@@ -121,9 +121,6 @@ type PutDocumentJSONRequestBody = Document
 // SearchDocumentsJSONRequestBody defines body for SearchDocuments for application/json ContentType.
 type SearchDocumentsJSONRequestBody = SearchRequest
 
-// ReactorLoopJSONRequestBody defines body for ReactorLoop for application/json ContentType.
-type ReactorLoopJSONRequestBody = ReactorIn
-
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
 
@@ -207,11 +204,6 @@ type ClientInterface interface {
 
 	SearchDocuments(ctx context.Context, body SearchDocumentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReactorLoopWithBody request with any body
-	ReactorLoopWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	ReactorLoop(ctx context.Context, body ReactorLoopJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// DeleteDocument request
 	DeleteDocument(ctx context.Context, model string, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -257,30 +249,6 @@ func (c *Client) SearchDocumentsWithBody(ctx context.Context, contentType string
 
 func (c *Client) SearchDocuments(ctx context.Context, body SearchDocumentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSearchDocumentsRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReactorLoopWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReactorLoopRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReactorLoop(ctx context.Context, body ReactorLoopJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReactorLoopRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -386,46 +354,6 @@ func NewSearchDocumentsRequestWithBody(server string, contentType string, body i
 	}
 
 	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewReactorLoopRequest calls the generic ReactorLoop builder with application/json body
-func NewReactorLoopRequest(server string, body ReactorLoopJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewReactorLoopRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewReactorLoopRequestWithBody generates requests for ReactorLoop with any type of body
-func NewReactorLoopRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v1/reactor")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -570,11 +498,6 @@ type ClientWithResponsesInterface interface {
 
 	SearchDocumentsWithResponse(ctx context.Context, body SearchDocumentsJSONRequestBody, reqEditors ...RequestEditorFn) (*SearchDocumentsResponse, error)
 
-	// ReactorLoopWithBodyWithResponse request with any body
-	ReactorLoopWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReactorLoopResponse, error)
-
-	ReactorLoopWithResponse(ctx context.Context, body ReactorLoopJSONRequestBody, reqEditors ...RequestEditorFn) (*ReactorLoopResponse, error)
-
 	// DeleteDocumentWithResponse request
 	DeleteDocumentWithResponse(ctx context.Context, model string, id string, reqEditors ...RequestEditorFn) (*DeleteDocumentResponse, error)
 
@@ -623,28 +546,6 @@ func (r SearchDocumentsResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r SearchDocumentsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type ReactorLoopResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *ReactorOut
-}
-
-// Status returns HTTPResponse.Status
-func (r ReactorLoopResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ReactorLoopResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -727,23 +628,6 @@ func (c *ClientWithResponses) SearchDocumentsWithResponse(ctx context.Context, b
 		return nil, err
 	}
 	return ParseSearchDocumentsResponse(rsp)
-}
-
-// ReactorLoopWithBodyWithResponse request with arbitrary body returning *ReactorLoopResponse
-func (c *ClientWithResponses) ReactorLoopWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReactorLoopResponse, error) {
-	rsp, err := c.ReactorLoopWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReactorLoopResponse(rsp)
-}
-
-func (c *ClientWithResponses) ReactorLoopWithResponse(ctx context.Context, body ReactorLoopJSONRequestBody, reqEditors ...RequestEditorFn) (*ReactorLoopResponse, error) {
-	rsp, err := c.ReactorLoop(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReactorLoopResponse(rsp)
 }
 
 // DeleteDocumentWithResponse request returning *DeleteDocumentResponse
@@ -837,32 +721,6 @@ func ParseSearchDocumentsResponse(rsp *http.Response) (*SearchDocumentsResponse,
 	return response, nil
 }
 
-// ParseReactorLoopResponse parses an HTTP response from a ReactorLoopWithResponse call
-func ParseReactorLoopResponse(rsp *http.Response) (*ReactorLoopResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ReactorLoopResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ReactorOut
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseDeleteDocumentResponse parses an HTTP response from a DeleteDocumentWithResponse call
 func ParseDeleteDocumentResponse(rsp *http.Response) (*DeleteDocumentResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -923,9 +781,6 @@ type ServerInterface interface {
 	// Search for documents
 	// (POST /v1/q)
 	SearchDocuments(ctx echo.Context) error
-	// Bidirectional streaming for reactor operations
-	// (GET /v1/reactor)
-	ReactorLoop(ctx echo.Context) error
 	// Delete a document by model and ID
 	// (DELETE /v1/{model}/{id})
 	DeleteDocument(ctx echo.Context, model string, id string) error
@@ -954,15 +809,6 @@ func (w *ServerInterfaceWrapper) SearchDocuments(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.SearchDocuments(ctx)
-	return err
-}
-
-// ReactorLoop converts echo context to params.
-func (w *ServerInterfaceWrapper) ReactorLoop(ctx echo.Context) error {
-	var err error
-
-	// Invoke the callback with all the unmarshaled arguments
-	err = w.Handler.ReactorLoop(ctx)
 	return err
 }
 
@@ -1044,7 +890,6 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 
 	router.POST(baseURL+"/v1", wrapper.PutDocument)
 	router.POST(baseURL+"/v1/q", wrapper.SearchDocuments)
-	router.GET(baseURL+"/v1/reactor", wrapper.ReactorLoop)
 	router.DELETE(baseURL+"/v1/:model/:id", wrapper.DeleteDocument)
 	router.GET(baseURL+"/v1/:model/:id", wrapper.GetDocument)
 
@@ -1112,23 +957,6 @@ func (response SearchDocuments400JSONResponse) VisitSearchDocumentsResponse(w ht
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ReactorLoopRequestObject struct {
-	Body *ReactorLoopJSONRequestBody
-}
-
-type ReactorLoopResponseObject interface {
-	VisitReactorLoopResponse(w http.ResponseWriter) error
-}
-
-type ReactorLoop200JSONResponse ReactorOut
-
-func (response ReactorLoop200JSONResponse) VisitReactorLoopResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
 type DeleteDocumentRequestObject struct {
 	Model string `json:"model"`
 	Id    string `json:"id"`
@@ -1189,9 +1017,6 @@ type StrictServerInterface interface {
 	// Search for documents
 	// (POST /v1/q)
 	SearchDocuments(ctx context.Context, request SearchDocumentsRequestObject) (SearchDocumentsResponseObject, error)
-	// Bidirectional streaming for reactor operations
-	// (GET /v1/reactor)
-	ReactorLoop(ctx context.Context, request ReactorLoopRequestObject) (ReactorLoopResponseObject, error)
 	// Delete a document by model and ID
 	// (DELETE /v1/{model}/{id})
 	DeleteDocument(ctx context.Context, request DeleteDocumentRequestObject) (DeleteDocumentResponseObject, error)
@@ -1269,35 +1094,6 @@ func (sh *strictHandler) SearchDocuments(ctx echo.Context) error {
 		return err
 	} else if validResponse, ok := response.(SearchDocumentsResponseObject); ok {
 		return validResponse.VisitSearchDocumentsResponse(ctx.Response())
-	} else if response != nil {
-		return fmt.Errorf("unexpected response type: %T", response)
-	}
-	return nil
-}
-
-// ReactorLoop operation middleware
-func (sh *strictHandler) ReactorLoop(ctx echo.Context) error {
-	var request ReactorLoopRequestObject
-
-	var body ReactorLoopJSONRequestBody
-	if err := ctx.Bind(&body); err != nil {
-		return err
-	}
-	request.Body = &body
-
-	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
-		return sh.ssi.ReactorLoop(ctx.Request().Context(), request.(ReactorLoopRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ReactorLoop")
-	}
-
-	response, err := handler(ctx, request)
-
-	if err != nil {
-		return err
-	} else if validResponse, ok := response.(ReactorLoopResponseObject); ok {
-		return validResponse.VisitReactorLoopResponse(ctx.Response())
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

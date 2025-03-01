@@ -1,13 +1,11 @@
 ![apogydb logo](./apogy.png)
 =======
 
-a cloud native json schema database with durable reactors built on tikv and nats
+a cloud native json schema database with composable validation
 
-
- - strongly typed with jsonschema
- - durable execution inspired by k8s reconcilers
- - declarative migrations
- - fulltext search
+ - built on tikv and nats
+ - strong validation with validation in jsonschema or cuelang
+ - durable external reconcilers inspired by kubernetes
  - first class object manipulation cli
 
 
@@ -17,15 +15,17 @@ a cloud native json schema database with durable reactors built on tikv and nats
     docker compose up -d
     apogy server
 
-Let's create a model.
-The most simple model in apogy is a jsonschema.
-Let's also create an object of that model.
+Let's create a model with a reactor.
+A model is sort of like a schema or a row.
+It can be hooked into many composable reactors which validate and mutate documents.
+Jsonschema is familiar with most people, so lets use that in this example.
 
 ```yaml
 ---
-model: Model
-id:    com.example.Book
+model: Reactor
+id:    com.example.BookSchema
 val:
+  runtime: jsonschema
   properties:
     name:
       type: string
@@ -33,6 +33,12 @@ val:
       type: string
   required:
    - name
+---
+model: Model
+id:    com.example.Book
+val:
+  reactors:
+    - com.example.BookSchema
 ---
 model:  com.example.Book
 id:     dune
@@ -55,7 +61,7 @@ Try what happens when you violate the jsonschema
     '/name' does not validate with schema://com.example.Book#/properties/name/type: expected string, but got number
 
 
-The jsonschema does not explicitly set additionalProperties: false, so this model allows arbitrary other json keys. However, it won't be searchable.
+The jsonschema does not explicitly set additionalProperties: false, so this model allows arbitrary other json keys. However, they won't be searchable.
 
 
 ## query
@@ -73,7 +79,6 @@ the first filter should be the highest cardinality, meaning most specific, retur
 
 in the above example we first specify name=Dune, which is in the world of books is very specific.
 There are only two books named Dune in the example dataset, so the next filter only needs to look at those 2.
-
 
 
 ## optimistic concurrency

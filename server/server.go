@@ -9,6 +9,7 @@ import (
 	"github.com/aep/apogy/api/go"
 	"github.com/aep/apogy/bus"
 	"github.com/aep/apogy/kv"
+	"github.com/aep/apogy/reactor"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -17,13 +18,16 @@ import (
 type server struct {
 	kv kv.KV
 	bs bus.Bus
+	ro *reactor.Reactor
 }
 
 func newServer(kv kv.KV, bs bus.Bus) *server {
-	return &server{
+	nu := &server{
 		kv: kv,
 		bs: bs,
 	}
+	nu.ro = reactor.NewReactor()
+	return nu
 }
 
 func Main() {
@@ -50,6 +54,9 @@ func Main() {
 
 	// Start server
 	fmt.Println("⇨ APOGY [tikv, solo]")
+
+	s.startup()
+
 	if err := e.Start(":27666"); err != http.ErrServerClosed {
 		panic(fmt.Sprintf("failed to serve: %v", err))
 	}
