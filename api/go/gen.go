@@ -40,6 +40,7 @@ type Filter struct {
 	Greater *interface{} `json:"greater,omitempty"`
 	Key     string       `json:"key"`
 	Less    *interface{} `json:"less,omitempty"`
+	Prefix  *interface{} `json:"prefix,omitempty"`
 }
 
 // History defines model for History.

@@ -17,7 +17,7 @@ import (
 
 var (
 	file    string
-	address = "http://localhost:5052"
+	address = "http://localhost:27666"
 	fullDoc bool
 
 	putCmd = &cobra.Command{
@@ -218,6 +218,10 @@ func parseFilter(arg string) openapi.Filter {
 		bi := any(b)
 		filter.Key = a
 		filter.Less = &bi
+	} else if a, b, ok := strings.Cut(arg, "^"); ok {
+		bi := any(b)
+		filter.Key = a
+		filter.Prefix = &bi
 	} else {
 		filter.Key = arg
 	}

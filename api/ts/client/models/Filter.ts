@@ -7,5 +7,6 @@ export type Filter = {
     equal?: any;
     greater?: any;
     less?: any;
+    prefix?: any;
 };
 

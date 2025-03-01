@@ -179,6 +179,7 @@ components:
         equal: {}
         greater: {}
         less: {}
+        prefix: {}
 
     SearchRequest:
       type: object

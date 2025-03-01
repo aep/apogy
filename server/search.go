@@ -33,10 +33,15 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 		return key, nil
 	}
 
-	key = []byte{'f', 0xff}
-	key = append(key, []byte(model)...)
-	key = append(key, 0xff)
-	key = append(key, []byte(filter.Key)...)
+	if filter.Key == "id" {
+		key = []byte{'o', 0xff}
+		key = append(key, []byte(model)...)
+	} else {
+		key = []byte{'f', 0xff}
+		key = append(key, []byte(model)...)
+		key = append(key, 0xff)
+		key = append(key, []byte(filter.Key)...)
+	}
 
 	if filter.Equal != nil {
 		if strVal, ok := (*filter.Equal).(string); ok {
@@ -46,7 +51,28 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 		} else {
 			return nil, fmt.Errorf("%T can't be used as search val", *filter.Equal)
 		}
+	} else if filter.Greater != nil {
+		if strVal, ok := (*filter.Greater).(string); ok {
+			key = append(key, 0xff)
+			key = append(key, []byte(strVal)...)
+		} else {
+			return nil, fmt.Errorf("%T can't be used as search val for greater than", *filter.Greater)
+		}
+	} else if filter.Prefix != nil {
+		if strVal, ok := (*filter.Prefix).(string); ok {
+			key = append(key, 0xff)
+			key = append(key, []byte(strVal)...)
+
+			// FIXME this is a prefix search rather than actually greater
+			key = append(key, 0x00)
+		} else {
+			return nil, fmt.Errorf("%T can't be used as search val for greater than", *filter.Greater)
+		}
+	} else if filter.Less != nil {
+		// exact key but any value
+		key = append(key, 0xff)
 	} else {
+		// any key including sub
 		key = append(key, 0x00)
 	}
 	return key, nil
@@ -54,7 +80,7 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 
 func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string, full bool) (findResult, error) {
 
-	// if the filter is by id, just return the object directly
+	// if the filter is by exact id, just return the object directly
 	if filter != nil && filter.Key == "id" && filter.Equal != nil {
 		if id, ok := (*filter.Equal).(string); ok {
 
@@ -76,7 +102,7 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 		return findResult{}, echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	// this is a sub filter
+	// we're in a sub filter
 	if id != "" {
 		if filter.Equal == nil || *filter.Equal == nil {
 			return findResult{}, echo.NewHTTPError(http.StatusBadRequest, "second filter currently can only be a k=v")
@@ -89,7 +115,21 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 	}
 
 	end := bytes.Clone(start)
-	end[len(end)-2] = end[len(end)-2] + 1
+
+	if filter != nil && filter.Less != nil {
+		if strVal, ok := (*filter.Less).(string); ok {
+			// For Less filter, explicitly set the end key to the specified value
+			end = []byte{'f', 0xff}
+			end = append(end, []byte(model)...)
+			end = append(end, 0xff)
+			end = append(end, []byte(filter.Key)...)
+			end = append(end, 0xff)
+			end = append(end, []byte(strVal)...)
+			end = append(end, 0xff)
+		}
+	} else {
+		end[len(end)-2] = end[len(end)-2] + 1
+	}
 
 	if cursor != nil {
 		if cursorBytes, err := base64.StdEncoding.DecodeString(*cursor); err == nil && len(cursorBytes) > 0 {
