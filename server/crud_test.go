@@ -7,12 +7,12 @@ import (
 	"sync"
 	"testing"
 
+	"encoding/json"
 	"github.com/aep/apogy/api/go"
 	"github.com/aep/apogy/bus"
 	"github.com/aep/apogy/kv"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 func setupTestServer(t *testing.T) (*echo.Echo, *server) {
@@ -63,13 +63,13 @@ func setupTestServer(t *testing.T) (*echo.Echo, *server) {
 		},
 	}
 
-	modelDocBytes, err := msgpack.Marshal(modelDoc)
+	modelDocBytes, err := json.Marshal(modelDoc)
 	if err != nil {
 		t.Fatalf("Failed to marshal model document: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodPut, "/documents/Model/Test.com.example", bytes.NewReader(modelDocBytes))
-	req.Header.Set(echo.HeaderContentType, "application/msgpack")
+	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -98,14 +98,14 @@ func TestPutDocument_Model(t *testing.T) {
 	}
 
 	// Convert document to MessagePack
-	docBytes, err := msgpack.Marshal(doc)
+	docBytes, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatalf("Failed to marshal test document: %v", err)
 	}
 
 	// Create a new request for PUT
 	req := httptest.NewRequest(http.MethodPut, "/documents/Model/bob.example.com", bytes.NewReader(docBytes))
-	req.Header.Set(echo.HeaderContentType, "application/msgpack")
+	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -114,7 +114,7 @@ func TestPutDocument_Model(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var response openapi.PutDocumentOK
-		err := msgpack.Unmarshal(rec.Body.Bytes(), &response)
+		err := json.Unmarshal(rec.Body.Bytes(), &response)
 		assert.NoError(t, err)
 		assert.Equal(t, "Model/bob.example.com", response.Path)
 
@@ -129,7 +129,7 @@ func TestPutDocument_Model(t *testing.T) {
 		assert.Equal(t, http.StatusOK, getRec.Code)
 
 		var storedDoc openapi.Document
-		err = msgpack.Unmarshal(getRec.Body.Bytes(), &storedDoc)
+		err = json.Unmarshal(getRec.Body.Bytes(), &storedDoc)
 		assert.NoError(t, err)
 
 		// Verify the stored document
@@ -151,16 +151,18 @@ func TestPutDocument_Reactor(t *testing.T) {
 		Model: "Reactor",
 		Id:    "asdasd.example.com",
 		Val: &map[string]interface{}{
-			"name": "Test Reactor",
-			"type": "test",
+			"runtime": "http",
+			"url":     "https://google.com",
+			"name":    "Test Reactor",
+			"type":    "test",
 		},
 	}
 
-	docBytes, err := msgpack.Marshal(doc)
+	docBytes, err := json.Marshal(doc)
 	assert.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPut, "/documents/Reactor/asdasd.example.com", bytes.NewReader(docBytes))
-	req.Header.Set(echo.HeaderContentType, "application/msgpack")
+	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -172,9 +174,9 @@ func TestPutDocument_InvalidFormat(t *testing.T) {
 	e, s := setupTestServer(t)
 
 	// Test with invalid MessagePack
-	invalidMsgPack := []byte{0xc1, 0x2, 0x3} // Invalid msgpack data
+	invalidMsgPack := []byte{0xc1, 0x2, 0x3} // Invalid json data
 	req := httptest.NewRequest(http.MethodPut, "/documents/Invalid/test", bytes.NewReader(invalidMsgPack))
-	req.Header.Set(echo.HeaderContentType, "application/msgpack")
+	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -200,9 +202,9 @@ func TestPutDocument_VersionConflict(t *testing.T) {
 		},
 	}
 
-	docBytes, _ := msgpack.Marshal(doc)
+	docBytes, _ := json.Marshal(doc)
 	req := httptest.NewRequest(http.MethodPut, "/documents/Test.com.example/version-test", bytes.NewReader(docBytes))
-	req.Header.Set(echo.HeaderContentType, "application/msgpack")
+	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -210,9 +212,9 @@ func TestPutDocument_VersionConflict(t *testing.T) {
 
 	// Try to update with wrong version
 	doc.Val = &map[string]interface{}{"data": "updated"}
-	docBytes, _ = msgpack.Marshal(doc)
+	docBytes, _ = json.Marshal(doc)
 	req = httptest.NewRequest(http.MethodPut, "/documents/Test.com.example/version-test", bytes.NewReader(docBytes))
-	req.Header.Set(echo.HeaderContentType, "application/msgpack")
+	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 
@@ -237,9 +239,9 @@ func TestPutDocument_ParallelVersionConflict(t *testing.T) {
 	}
 
 	// First PUT to create the document
-	docBytes, _ := msgpack.Marshal(initialDoc)
+	docBytes, _ := json.Marshal(initialDoc)
 	req := httptest.NewRequest(http.MethodPut, "/documents/Test.com.example/parallel-test", bytes.NewReader(docBytes))
-	req.Header.Set(echo.HeaderContentType, "application/msgpack")
+	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -254,7 +256,7 @@ func TestPutDocument_ParallelVersionConflict(t *testing.T) {
 	assert.NoError(t, err)
 
 	var storedDoc openapi.Document
-	err = msgpack.Unmarshal(getRec.Body.Bytes(), &storedDoc)
+	err = json.Unmarshal(getRec.Body.Bytes(), &storedDoc)
 	assert.NoError(t, err)
 
 	// Prepare for parallel updates
@@ -274,9 +276,9 @@ func TestPutDocument_ParallelVersionConflict(t *testing.T) {
 				"by":   index,
 			}
 
-			docBytes, _ := msgpack.Marshal(updateDoc)
+			docBytes, _ := json.Marshal(updateDoc)
 			req := httptest.NewRequest(http.MethodPut, "/documents/Test.com.example/parallel-test", bytes.NewReader(docBytes))
-			req.Header.Set(echo.HeaderContentType, "application/msgpack")
+			req.Header.Set(echo.HeaderContentType, "application/json")
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 
@@ -303,7 +305,7 @@ func TestPutDocument_ParallelVersionConflict(t *testing.T) {
 	assert.NoError(t, err)
 
 	var finalDoc openapi.Document
-	err = msgpack.Unmarshal(getRec.Body.Bytes(), &finalDoc)
+	err = json.Unmarshal(getRec.Body.Bytes(), &finalDoc)
 	assert.NoError(t, err)
 	assert.Equal(t, *storedDoc.Version+1, *finalDoc.Version, "Document version should be incremented exactly once")
 }
@@ -336,9 +338,9 @@ func TestPutDocument_Update(t *testing.T) {
 	}
 
 	// First PUT
-	docBytes, _ := msgpack.Marshal(doc)
+	docBytes, _ := json.Marshal(doc)
 	req := httptest.NewRequest(http.MethodPut, "/documents/Test.com.example/update-test", bytes.NewReader(docBytes))
-	req.Header.Set(echo.HeaderContentType, "application/msgpack")
+	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -346,9 +348,9 @@ func TestPutDocument_Update(t *testing.T) {
 
 	// Update document
 	doc.Val = &map[string]interface{}{"data": "updated"}
-	docBytes, _ = msgpack.Marshal(doc)
+	docBytes, _ = json.Marshal(doc)
 	req = httptest.NewRequest(http.MethodPut, "/documents/Test.com.example/update-test", bytes.NewReader(docBytes))
-	req.Header.Set(echo.HeaderContentType, "application/msgpack")
+	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 
@@ -364,10 +366,11 @@ func TestPutDocument_Update(t *testing.T) {
 	assert.NoError(t, err)
 
 	var storedDoc openapi.Document
-	err = msgpack.Unmarshal(getRec.Body.Bytes(), &storedDoc)
+	err = json.Unmarshal(getRec.Body.Bytes(), &storedDoc)
 	assert.NoError(t, err)
 
 	assert.Equal(t, "updated", (*storedDoc.Val)["data"])
 	assert.NotNil(t, storedDoc.Version)
 	assert.Equal(t, uint64(2), *storedDoc.Version)
 }
+
