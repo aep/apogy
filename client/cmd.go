@@ -28,9 +28,9 @@ var (
 	}
 
 	getCmd = &cobra.Command{
-		Use:   "get [model/id]",
+		Use:   "get [model] [id]",
 		Short: "Get a document",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(2),
 		Run:   get,
 	}
 
@@ -43,9 +43,9 @@ var (
 
 	rmCmd = &cobra.Command{
 		Aliases: []string{"delete", "del"},
-		Use:     "rm [model/id]",
+		Use:     "rm [model] [id]",
 		Short:   "Delete a document",
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.ExactArgs(2),
 		Run:     del,
 	}
 
@@ -152,18 +152,12 @@ func put(cmd *cobra.Command, args []string) {
 }
 
 func get(cmd *cobra.Command, args []string) {
-	parts := strings.Split(args[0], "/")
-	if len(parts) != 2 {
-		log.Fatal("Invalid id format. Expected model/id")
-	}
-	model, id := parts[0], parts[1]
-
 	client, err := getClient()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	resp, err := client.GetDocumentWithResponse(context.Background(), model, id)
+	resp, err := client.GetDocumentWithResponse(context.Background(), args[0], args[1])
 	if err != nil {
 		log.Fatalf("Failed to get document: %v", err)
 	}
@@ -180,18 +174,12 @@ func get(cmd *cobra.Command, args []string) {
 }
 
 func del(cmd *cobra.Command, args []string) {
-	parts := strings.Split(args[0], "/")
-	if len(parts) != 2 {
-		log.Fatal("Invalid id format. Expected model/id")
-	}
-	model, id := parts[0], parts[1]
-
 	client, err := getClient()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	resp, err := client.DeleteDocumentWithResponse(context.Background(), model, id)
+	resp, err := client.DeleteDocumentWithResponse(context.Background(), args[0], args[1])
 	if err != nil {
 		log.Fatalf("Failed to get document: %v", err)
 	}
@@ -267,7 +255,7 @@ func search(cmd *cobra.Command, args []string) {
 				os.Stdout.Write(enc)
 				fmt.Println("---")
 			} else {
-				fmt.Printf("%s/%s\n", args[0], doc.Id)
+				fmt.Println(doc.Id)
 			}
 		}
 

@@ -32,15 +32,20 @@ func (s *server) validateMeta(doc *openapi.Document) error {
 		}
 	}
 
-	for _, char := range doc.Id {
-		if !((char >= 'a' && char <= 'z') ||
-			(char >= 'A' && char <= 'Z') ||
-			(char == '.') ||
-			(char == '-') ||
-			(char >= '0' && char <= '9')) {
-			return fmt.Errorf("validation error: /id has invalid character: %c", char)
+	/*
+
+		TODO: i have no idea if its safe to allow arbitrary characters in the id
+
+		for _, char := range doc.Id {
+			if !((char >= 'a' && char <= 'z') ||
+				(char >= 'A' && char <= 'Z') ||
+				(char == '.') ||
+				(char == '-') ||
+				(char >= '0' && char <= '9')) {
+				return fmt.Errorf("validation error: /id has invalid character: %c", char)
+			}
 		}
-	}
+	*/
 
 	return nil
 }
