@@ -15,6 +15,9 @@ const (
 	TOKEN_EOF
 	TOKEN_IDENT
 	TOKEN_EQUALS
+	TOKEN_LESS
+	TOKEN_GREATER
+	TOKEN_PREFIX
 	TOKEN_LPAREN
 	TOKEN_RPAREN
 	TOKEN_LBRACE
@@ -31,6 +34,12 @@ func tokenName(i TokenType) string {
 		return "IDENT"
 	case TOKEN_EQUALS:
 		return "EQUALS"
+	case TOKEN_LESS:
+		return "LESS"
+	case TOKEN_GREATER:
+		return "GREATER"
+	case TOKEN_PREFIX:
+		return "PREFIX"
 	case TOKEN_LPAREN:
 		return "LPAREN"
 	case TOKEN_RPAREN:
@@ -119,6 +128,12 @@ func (l *Lexer) NextToken() Token {
 	switch l.ch {
 	case '=':
 		tok = Token{TOKEN_EQUALS, string(l.ch)}
+	case '<':
+		tok = Token{TOKEN_LESS, string(l.ch)}
+	case '>':
+		tok = Token{TOKEN_GREATER, string(l.ch)}
+	case '^':
+		tok = Token{TOKEN_PREFIX, string(l.ch)}
 	case '(':
 		tok = Token{TOKEN_LPAREN, string(l.ch)}
 	case ')':
@@ -169,13 +184,28 @@ func (q *Query) String() string {
 	if len(q.Filter) > 0 {
 		filters := make([]string, 0)
 		for k, v := range q.Filter {
+			// Determine operator
+			var operator string = "="
+			var actualKey string = k
+			
+			if strings.HasSuffix(k, "<") {
+				operator = "<"
+				actualKey = strings.TrimSuffix(k, "<")
+			} else if strings.HasSuffix(k, ">") {
+				operator = ">"
+				actualKey = strings.TrimSuffix(k, ">")
+			} else if strings.HasSuffix(k, "^") {
+				operator = "^"
+				actualKey = strings.TrimSuffix(k, "^")
+			}
+			
 			switch val := v.(type) {
 			case string:
-				filters = append(filters, fmt.Sprintf(`%s="%s"`, k, val))
+				filters = append(filters, fmt.Sprintf(`%s%s"%s"`, actualKey, operator, val))
 			case float64:
-				filters = append(filters, fmt.Sprintf(`%s=%g`, k, val))
+				filters = append(filters, fmt.Sprintf(`%s%s%g`, actualKey, operator, val))
 			case bool:
-				filters = append(filters, fmt.Sprintf(`%s=%v`, k, val))
+				filters = append(filters, fmt.Sprintf(`%s%s%v`, actualKey, operator, val))
 			}
 		}
 		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(filters, " ")))
@@ -282,8 +312,9 @@ func (p *Parser) parseFilter() (map[string]interface{}, error) {
 			continue
 		}
 
-		if p.curToken.Type != TOKEN_EQUALS {
-			return nil, fmt.Errorf("expected = in filter, got %s", tokenName(p.curToken.Type))
+		var operator TokenType = p.curToken.Type
+		if operator != TOKEN_EQUALS && operator != TOKEN_LESS && operator != TOKEN_GREATER && operator != TOKEN_PREFIX {
+			return nil, fmt.Errorf("expected =, <, >, or ^ in filter, got %s", tokenName(p.curToken.Type))
 		}
 		p.nextToken()
 
@@ -294,21 +325,34 @@ func (p *Parser) parseFilter() (map[string]interface{}, error) {
 
 		value := p.curToken.Literal
 
-		// Try to parse as number or boolean if it's not a quoted string
+		// Process the value based on token type and operator
+		var processedValue interface{}
 		if p.curToken.Type == TOKEN_IDENT {
 			if value == "true" {
-				filter[key] = true
+				processedValue = true
 			} else if value == "false" {
-				filter[key] = false
+				processedValue = false
 			} else if num, err := strconv.ParseFloat(value, 64); err == nil {
-				filter[key] = num
+				processedValue = num
 			} else {
-				filter[key] = value
+				processedValue = value
 			}
 		} else if p.curToken.Type == TOKEN_STRING {
-			filter[key] = value
+			processedValue = value
 		} else {
 			return nil, fmt.Errorf("expected value, got %s", tokenName(p.curToken.Type))
+		}
+
+		// Store value with appropriate operator metadata
+		switch operator {
+		case TOKEN_EQUALS:
+			filter[key] = processedValue
+		case TOKEN_LESS:
+			filter[key+"<"] = processedValue
+		case TOKEN_GREATER:
+			filter[key+">"] = processedValue
+		case TOKEN_PREFIX:
+			filter[key+"^"] = processedValue
 		}
 
 		p.nextToken()
