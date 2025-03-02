@@ -33,11 +33,15 @@ func StartHttpReactor(doc *openapi.Document) (Runtime, error) {
 func (hr *HttpReactor) Stop() {
 }
 
-func (hr *HttpReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document) (*openapi.Document, error) {
+func (*HttpReactor) Ready(model *openapi.Document, args interface{}) (interface{}, error) {
+	return nil, nil
+}
+
+func (hr *HttpReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
 	return nuw, nil
 }
 
-func (hr *HttpReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document) error {
+func (hr *HttpReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
 	payload := openapi.ValidationRequest{
 		Current: old,
 		Pending: nuw,

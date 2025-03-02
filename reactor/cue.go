@@ -4,51 +4,87 @@ import (
 	"fmt"
 
 	"context"
+
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
 	"github.com/aep/apogy/api/go"
+	ycue "github.com/aep/yema/cue"
+	yparser "github.com/aep/yema/parser"
 )
 
 type cueReactor struct {
+}
+
+func NewCueReactor() Runtime {
+	return &cueReactor{}
+}
+
+func (cr *cueReactor) Stop() {}
+
+type cueReady struct {
 	cctx   *cue.Context
 	schema cue.Value
 }
 
-func StartCueReactor(doc *openapi.Document) (Runtime, error) {
-	if doc.Val == nil {
-		return nil, fmt.Errorf("val must not be empty")
+func (cr *cueReactor) Ready(model *openapi.Document, args interface{}) (interface{}, error) {
+
+	if model.Val == nil {
+		return nil, nil
 	}
 
-	src, _ := (*doc.Val)["source"].(string)
-	if src == "" {
-		return nil, fmt.Errorf("val.source must not be empty")
+	ss, ok := (*model.Val)["schema"].(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	yy, err := yparser.From(ss)
+	if err != nil {
+		return nil, err
 	}
 
 	ctx := cuecontext.New()
 
-	schema := ctx.CompileString(src)
-	if schema.Err() != nil {
-		return nil, schema.Err()
+	schema, err := ycue.ToCue(ctx, yy)
+	if err != nil {
+		return nil, err
 	}
 
-	return &cueReactor{cctx: ctx, schema: schema}, nil
+	src, _ := args.(string)
+	if src != "" {
+
+		schema2 := ctx.CompileString(src)
+		if schema.Err() != nil {
+			return nil, schema.Err()
+		}
+
+		schema = schema.Unify(schema2)
+		if schema.Err() != nil {
+			return nil, schema.Err()
+		}
+
+	}
+
+	return &cueReady{cctx: ctx, schema: schema}, nil
 }
 
-func (cr *cueReactor) Stop() {
-}
-
-func (jsr *cueReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document) (*openapi.Document, error) {
+func (jsr *cueReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
 
 	if nuw == nil {
 		return nil, nil
 	}
 
-	y := jsr.cctx.Encode(nuw)
+	if args == nil {
+		return nil, nil
+	}
+
+	cueReady := args.(*cueReady)
+
+	y := cueReady.cctx.Encode(nuw.Val)
 	if y.Err() != nil {
 		return nil, fmt.Errorf("encode to cue failed: %w", y.Err())
 	}
 
-	unified := jsr.schema.Unify(y)
+	unified := cueReady.schema.Unify(y)
 	if unified.Err() != nil {
 		return nil, fmt.Errorf("validation failed: %w", unified.Err())
 	}
@@ -66,6 +102,6 @@ func (jsr *cueReactor) Validate(ctx context.Context, old *openapi.Document, nuw 
 	return nuw, nil
 }
 
-func (cr *cueReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document) error {
+func (cr *cueReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
 	return nil
 }

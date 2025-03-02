@@ -1,26 +1,21 @@
 ---
-model:   Reactor
-id:      com.example.Book
-val:
-  runtime: cue
-  source: |
-    id: string
-    val: {
-      name: string
-      author: string
-      reviews?: [...{...}]
-      isbn?: string
-    }
----
 model:   Model
 id:      com.example.Book
 val:
+  schema:
+    name: string
+    author: string
+    reviews?:
+      - author: string
+        text: string
+    isbn?: string
   reactors:
-    - com.example.Book
+    - cue: |
+        import "strings"
+        name: strings.MinRunes(10)
 ---
 model:  com.example.Book
 id: a410d488-3d33-4e18-af26-6f818968b015
-version: 1
 val:
   name: Dune
   author: Frank Herbert
@@ -260,7 +255,7 @@ val:
 model:  com.example.Book
 id: c8d90e12-3z45-6a78-b901-c234d5678e90
 val:
-  name: The ASCII Art of Love
+  name: T
   author: Unicode Heart
 ---
 model:  com.example.Book

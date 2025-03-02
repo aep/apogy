@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/aep/apogy/api/go"
-	"github.com/labstack/echo/v4"
+	yparser "github.com/aep/yema/parser"
 	"net/http"
 	"strings"
+
+	"github.com/aep/apogy/api/go"
+	"github.com/labstack/echo/v4"
 )
 
 func (s *server) validateReactorSchema(ctx context.Context, object *openapi.Document) error {
@@ -19,22 +21,25 @@ func (s *server) validateReactorSchema(ctx context.Context, object *openapi.Docu
 	return nil
 }
 
-func (s *server) validateSchemaSchema(ctx context.Context, object *openapi.Document) error {
-	idparts := strings.FieldsFunc(object.Id, func(r rune) bool {
+func (s *server) validateSchemaSchema(ctx context.Context, doc *openapi.Document) error {
+
+	idparts := strings.FieldsFunc(doc.Id, func(r rune) bool {
 		return r == '.'
 	})
 	if len(idparts) < 2 {
 		return echo.NewHTTPError(http.StatusBadRequest, "validation error (id): must be a domain , like com.example.Book")
 	}
 
-	/*
-		// Recursively validate all properties and their links
-		if err := s.validateSchemaProperties(ctx, object.Id, r, properties, ""); err != nil {
-			return err
-		}
+	if doc.Val == nil {
+		return nil
+	}
 
-		return s.recursiveSchemaCheck(ctx, r, object.Id, object, []string{}, 0)
-	*/
+	ym, _ := (*doc.Val)["schema"].(map[string]interface{})
+
+	_, err := yparser.From(ym)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error (val.schema): %s", err))
+	}
 
 	return nil
 }
@@ -362,4 +367,3 @@ func (s *server) validateObjectSchema(ctx context.Context, object *openapi.Docum
 }
 
 */
-

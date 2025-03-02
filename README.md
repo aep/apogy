@@ -4,7 +4,7 @@
 a cloud native json schema database with composable validation
 
  - built on tikv and nats
- - strong validation with validation in jsonschema or cuelang
+ - strongly typed schema with bindings in most programming languages
  - durable external reconcilers inspired by kubernetes
  - first class object manipulation cli
 
@@ -15,30 +15,21 @@ a cloud native json schema database with composable validation
     docker compose up -d
     apogy server
 
-Let's create a model with a reactor.
-A model is sort of like a schema or a row.
+Let's create a model, which defines a schema.
 It can be hooked into many composable reactors which validate and mutate documents.
-Jsonschema is familiar with most people, so lets use that in this example.
+The schema is defined in [yema](https://github.com/aep/yema) which should be faily obvious.
 
 ```yaml
----
-model: Reactor
-id:    com.example.BookSchema
-val:
-  runtime: jsonschema
-  properties:
-    name:
-      type: string
-    author:
-      type: string
-  required:
-   - name
 ---
 model: Model
 id:    com.example.Book
 val:
+  schema:
+    name: string
+    author: string
+    isbn?: string
   reactors:
-    - com.example.BookSchema
+    - schema
 ---
 model:  com.example.Book
 id:     dune
@@ -49,7 +40,7 @@ val:
 
     apogy apply -f examples/quickstart.yaml
 
-Try what happens when you violate the jsonschema
+Try what happens when you violate the schema
 
     apogy apply -f - <<EOF
     model:  com.example.Book
@@ -58,10 +49,27 @@ Try what happens when you violate the jsonschema
       name:   11111111111
     EOF
 
-    '/name' does not validate with schema://com.example.Book#/properties/name/type: expected string, but got number
+    com.example.Book d9e01f23-4a56-7b89-c012-d345e6789f01 rejected: reactor schema rejected change: not serializable, field 'name' must be a string
 
 
-The jsonschema does not explicitly set additionalProperties: false, so this model allows arbitrary other json keys. However, they won't be searchable.
+
+you can also define more complex validation using a [cue](https://cuelang.org) reactor. cue reactors can also mutate the document.
+
+```yaml
+---
+model:   Model
+id:      com.example.Book
+val:
+  schema:
+    name: string
+    author: string
+    isbn?: string
+  reactors:
+    - cue: |
+        import "strings"
+        name: strings.MinRunes(2)
+        validatedByCue: "yes"
+```
 
 
 ## query

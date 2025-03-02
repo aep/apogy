@@ -51,7 +51,7 @@ var (
 
 	searchCmd = &cobra.Command{
 		Use:     "search [model] [q]",
-		Aliases: []string{"find"},
+		Aliases: []string{"find", "ls", "list"},
 		Short:   "Search for documents",
 		Args:    cobra.MinimumNArgs(1),
 		Run:     search,

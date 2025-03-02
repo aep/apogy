@@ -10,46 +10,84 @@ import (
 )
 
 type Runtime interface {
-	Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document) (*openapi.Document, error)
-	Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document) error
+	Ready(model *openapi.Document, arg interface{}) (interface{}, error)
+	Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error)
+	Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) error
 	Stop()
+}
+
+type reactorReadyArgs struct {
+	reactorName string
+	args        interface{}
 }
 
 type Reactor struct {
 	lock            sync.RWMutex
 	running         map[string]Runtime
-	models2reactors map[string][]string
+	models2reactors map[string][]reactorReadyArgs
 }
 
 func NewReactor() *Reactor {
 	ro := &Reactor{
 		running:         make(map[string]Runtime),
-		models2reactors: make(map[string][]string),
+		models2reactors: make(map[string][]reactorReadyArgs),
 	}
 	ro.startBuiltins()
 	return ro
 }
 
+func (ro *Reactor) reactorReadyArgsFromModel(doc *openapi.Document) ([]reactorReadyArgs, error) {
+
+	ro.lock.RLock()
+	defer ro.lock.RUnlock()
+
+	if doc.Val == nil {
+		return nil, nil
+	}
+
+	var ret []reactorReadyArgs
+
+	ii, _ := (*doc.Val)["reactors"].([]interface{})
+	for _, i := range ii {
+
+		switch i := i.(type) {
+		case string:
+			reactorName := i
+			if ro.running[reactorName] == nil {
+				return nil, fmt.Errorf("reactor does not exist: %s", reactorName)
+			}
+			args, err := ro.running[reactorName].Ready(doc, nil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid use of reactor %s: %w", reactorName, err)
+			}
+			ret = append(ret, reactorReadyArgs{reactorName: reactorName, args: args})
+		case map[string]interface{}:
+			for k, v := range i {
+				reactorName := k
+				if ro.running[reactorName] == nil {
+					return nil, fmt.Errorf("reactor does not exist: %s", reactorName)
+				}
+				args, err := ro.running[reactorName].Ready(doc, v)
+				if err != nil {
+					return nil, fmt.Errorf("invalid use of reactor %s: %w", reactorName, err)
+				}
+				ret = append(ret, reactorReadyArgs{reactorName: reactorName, args: args})
+
+				break
+			}
+		}
+	}
+
+	return ret, nil
+
+}
+
 func (ro *Reactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document) (*openapi.Document, error) {
 
 	if nuw != nil && nuw.Model == "Model" {
-		if nuw.Val != nil {
-
-			ro.lock.RLock()
-
-			pp, _ := (*nuw.Val)["reactors"].([]interface{})
-			for _, pp := range pp {
-				s, ok := pp.(string)
-				if ok {
-					if ro.running[s] == nil {
-						ro.lock.RUnlock()
-						return nuw, fmt.Errorf("reactor does not exist: %s", s)
-					}
-				}
-			}
-
-			ro.lock.RUnlock()
-
+		_, err := ro.reactorReadyArgsFromModel(nuw)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -72,17 +110,17 @@ func (ro *Reactor) Validate(ctx context.Context, old *openapi.Document, nuw *ope
 	pp := ro.models2reactors[modelName]
 	ro.lock.RUnlock()
 
-	for _, reactorName := range pp {
+	for _, runArgs := range pp {
 
 		ro.lock.RLock()
-		rt := ro.running[reactorName]
+		rt := ro.running[runArgs.reactorName]
 		ro.lock.RUnlock()
 
 		if rt != nil {
 			var err error
-			nuw, err = rt.Validate(ctx, old, nuw)
+			nuw, err = rt.Validate(ctx, old, nuw, runArgs.args)
 			if err != nil {
-				return nuw, fmt.Errorf("reactor %s rejected change: %w", reactorName, err)
+				return nuw, fmt.Errorf("reactor %s rejected change: %w", runArgs.reactorName, err)
 			}
 		}
 	}
@@ -99,21 +137,13 @@ func (ro *Reactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *op
 		ro.lock.Unlock()
 
 	} else if nuw != nil && nuw.Model == "Model" {
-
-		if nuw.Val != nil {
-			pp, _ := (*nuw.Val)["reactors"].([]interface{})
-			pps := []string{}
-			for _, pp := range pp {
-				s, ok := pp.(string)
-				if ok {
-					pps = append(pps, s)
-				}
-			}
-
-			ro.lock.Lock()
-			ro.models2reactors[nuw.Id] = pps
-			ro.lock.Unlock()
+		aa, err := ro.reactorReadyArgsFromModel(nuw)
+		if err != nil {
+			return err
 		}
+		ro.lock.Lock()
+		ro.models2reactors[nuw.Id] = aa
+		ro.lock.Unlock()
 	}
 
 	var modelName string
@@ -124,20 +154,20 @@ func (ro *Reactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *op
 	}
 
 	ro.lock.RLock()
-	pp := ro.models2reactors[modelName]
+	aa := ro.models2reactors[modelName]
 	ro.lock.RUnlock()
 
-	for _, reactorName := range pp {
+	for _, a := range aa {
 
 		ro.lock.RLock()
-		rt := ro.running[reactorName]
+		rt := ro.running[a.reactorName]
 		ro.lock.RUnlock()
 
 		if rt != nil {
 
 			// FIXME: reconcilers actually need to be durable i.e. call them forever until it succeeds but i need distributed locking first
 
-			err := rt.Reconcile(ctx, old, nuw)
+			err := rt.Reconcile(ctx, old, nuw, a.args)
 			if err != nil {
 				return err
 			}
@@ -174,22 +204,7 @@ func (ro *Reactor) start(ctx context.Context, rd *openapi.Document) error {
 	}
 
 	var started Runtime
-	if runtimeName == "jsonschema" {
-		var err error
-		started, err = StartJsonSchemaReactor(rd)
-		if err != nil {
-			return err
-		}
-		slog.Info("started jsonschema reactor", "id", rd.Id)
-
-	} else if runtimeName == "cue" {
-		var err error
-		started, err = StartCueReactor(rd)
-		if err != nil {
-			return err
-		}
-		slog.Info("started cue reactor", "id", rd.Id)
-	} else if runtimeName == "http" {
+	if runtimeName == "http" {
 		var err error
 		started, err = StartHttpReactor(rd)
 		if err != nil {

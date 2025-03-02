@@ -9,19 +9,25 @@ import (
 
 type immutableReactor struct{}
 
+func (*immutableReactor) Ready(model *openapi.Document, args interface{}) (interface{}, error) {
+	return nil, nil
+}
+
 func (*immutableReactor) Stop() {}
 
-func (*immutableReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document) (*openapi.Document, error) {
+func (*immutableReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
 	if old != nil && nuw != nil {
 		return nil, fmt.Errorf("Document is immutable")
 	}
 	return nuw, nil
 }
 
-func (*immutableReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document) error {
+func (*immutableReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
 	return nil
 }
 
 func (ro *Reactor) startBuiltins() {
-	ro.running["Immutable"] = &immutableReactor{}
+	ro.running["immutable"] = &immutableReactor{}
+	ro.running["schema"] = NewYemaReactor()
+	ro.running["cue"] = NewCueReactor()
 }
