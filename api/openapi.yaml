@@ -126,6 +126,7 @@ components:
       required:
         - id
         - model
+        - val
       properties:
         id:
           type: string
@@ -136,9 +137,7 @@ components:
           format: uint64
         history:
           $ref: '#/components/schemas/History'
-        val:
-          type: object
-          additionalProperties: true
+        val: {}
         status:
           type: object
           additionalProperties: true

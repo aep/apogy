@@ -3,7 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"strings"
 )
 

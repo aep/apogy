@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"encoding/json"
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"github.com/aep/apogy/bus"
 	"github.com/aep/apogy/kv"
 	"github.com/labstack/echo/v4"
@@ -368,9 +368,17 @@ func TestPutDocument_Update(t *testing.T) {
 	var storedDoc openapi.Document
 	err = json.Unmarshal(getRec.Body.Bytes(), &storedDoc)
 	assert.NoError(t, err)
-
-	assert.Equal(t, "updated", (*storedDoc.Val)["data"])
+	
+	// Convert the entire Val to JSON and back to a map to handle various potential types
+	var valMap map[string]interface{}
+	valBytes, err := json.Marshal(storedDoc.Val)
+	assert.NoError(t, err, "Failed to marshal storedDoc.Val to JSON")
+	
+	err = json.Unmarshal(valBytes, &valMap)
+	assert.NoError(t, err, "Failed to unmarshal JSON to map")
+	
+	// Now we can safely access the map
+	assert.Equal(t, "updated", valMap["data"])
 	assert.NotNil(t, storedDoc.Version)
 	assert.Equal(t, uint64(2), *storedDoc.Version)
 }
-

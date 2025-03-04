@@ -1,4 +1,4 @@
-package: openapi
+package: apogy
 generate:
   echo-server: true
   client: true

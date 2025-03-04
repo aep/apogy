@@ -6,7 +6,7 @@ import (
 
 	"context"
 
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"github.com/aep/yema"
 	yparser "github.com/aep/yema/parser"
 	yvalidator "github.com/aep/yema/validator"
@@ -20,11 +20,13 @@ func NewYemaReactor() Runtime {
 }
 
 func (*yemaReactor) Ready(model *openapi.Document, args interface{}) (interface{}, error) {
-	if model.Val == nil {
+
+	val, _ := model.Val.(map[string]interface{})
+	if val == nil {
 		return nil, nil
 	}
 
-	ss, ok := (*model.Val)["schema"].(map[string]interface{})
+	ss, ok := val["schema"].(map[string]interface{})
 	if !ok {
 		return nil, nil
 	}
@@ -50,10 +52,7 @@ func (yr *yemaReactor) Validate(ctx context.Context, old *openapi.Document, nuw 
 		return nuw, nil
 	}
 
-	var val map[string]interface{}
-	if nuw.Val != nil {
-		val = *nuw.Val
-	}
+	val, _ := nuw.Val.(map[string]interface{})
 
 	errs := yvalidator.Validate(val, args.(*yema.Type))
 

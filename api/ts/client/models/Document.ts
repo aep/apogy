@@ -8,7 +8,7 @@ export type Document = {
     model: string;
     version?: number;
     history?: History;
-    val?: Record<string, any>;
+    val: any;
     status?: Record<string, any>;
 };
 

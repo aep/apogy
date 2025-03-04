@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"github.com/labstack/echo/v4"
 )
 
@@ -30,11 +30,12 @@ func (s *server) validateSchemaSchema(ctx context.Context, doc *openapi.Document
 		return echo.NewHTTPError(http.StatusBadRequest, "validation error (id): must be a domain , like com.example.Book")
 	}
 
-	if doc.Val == nil {
+	val, _ := doc.Val.(map[string]interface{})
+	if val == nil {
 		return nil
 	}
 
-	ym, _ := (*doc.Val)["schema"].(map[string]interface{})
+	ym, _ := val["schema"].(map[string]interface{})
 
 	_, err := yparser.From(ym)
 	if err != nil {

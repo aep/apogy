@@ -9,14 +9,14 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 )
 
 var (
-	file    string
+	file string
 
 	fullDoc bool
 
@@ -64,6 +64,13 @@ var (
 		Args:    cobra.MinimumNArgs(1),
 		Run:     query,
 	}
+
+	buildCmd = &cobra.Command{
+		Use:   "build",
+		Short: "build api",
+		Args:  cobra.MinimumNArgs(0),
+		Run:   runBuild,
+	}
 )
 
 func RegisterCommands(root *cobra.Command) {
@@ -78,6 +85,10 @@ func RegisterCommands(root *cobra.Command) {
 	root.AddCommand(searchCmd)
 	root.AddCommand(qCmd)
 	root.AddCommand(rmCmd)
+
+	buildCmd.Flags().StringVarP(&file, "file", "f", "", "Path to JSON/YAML file")
+	buildCmd.MarkFlagRequired("file")
+	root.AddCommand(buildCmd)
 }
 
 func parseFile(file string) ([]openapi.Document, error) {

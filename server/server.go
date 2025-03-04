@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"github.com/aep/apogy/bus"
 	"github.com/aep/apogy/kv"
 	"github.com/aep/apogy/reactor"

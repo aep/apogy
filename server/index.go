@@ -3,7 +3,7 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"github.com/aep/apogy/kv"
 	"log/slog"
 	"math"

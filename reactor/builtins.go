@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 )
 
 type immutableReactor struct{}

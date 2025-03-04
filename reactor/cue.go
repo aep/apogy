@@ -7,7 +7,7 @@ import (
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	ycue "github.com/aep/yema/cue"
 	yparser "github.com/aep/yema/parser"
 )
@@ -28,11 +28,12 @@ type cueReady struct {
 
 func (cr *cueReactor) Ready(model *openapi.Document, args interface{}) (interface{}, error) {
 
-	if model.Val == nil {
+	val, _ := model.Val.(map[string]interface{})
+	if val == nil {
 		return nil, nil
 	}
 
-	ss, ok := (*model.Val)["schema"].(map[string]interface{})
+	ss, ok := val["schema"].(map[string]interface{})
 	if !ok {
 		return nil, nil
 	}

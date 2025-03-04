@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"github.com/labstack/echo/v4"
 	"github.com/vmihailenco/msgpack/v5"
 )

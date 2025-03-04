@@ -1,7 +1,7 @@
 package aql
 
 import (
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"strings"
 )
 
@@ -71,4 +71,3 @@ func (q *Query) ToSearchRequest() *openapi.SearchRequest {
 
 	return req
 }
-

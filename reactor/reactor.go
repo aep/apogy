@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 )
 
 type Runtime interface {
@@ -38,16 +38,17 @@ func NewReactor() *Reactor {
 
 func (ro *Reactor) reactorReadyArgsFromModel(doc *openapi.Document) ([]reactorReadyArgs, error) {
 
-	ro.lock.RLock()
-	defer ro.lock.RUnlock()
-
-	if doc.Val == nil {
+	val, _ := doc.Val.(map[string]interface{})
+	if val == nil {
 		return nil, nil
 	}
 
+	ro.lock.RLock()
+	defer ro.lock.RUnlock()
+
 	var ret []reactorReadyArgs
 
-	ii, _ := (*doc.Val)["reactors"].([]interface{})
+	ii, _ := val["reactors"].([]interface{})
 	for _, i := range ii {
 
 		switch i := i.(type) {
@@ -194,11 +195,12 @@ func (ro *Reactor) stop(ctx context.Context, rd *openapi.Document) error {
 
 func (ro *Reactor) start(ctx context.Context, rd *openapi.Document) error {
 
-	if rd.Val == nil {
+	val, _ := rd.Val.(map[string]interface{})
+	if val == nil {
 		return fmt.Errorf("invalid reactor: val.runtime is required")
 	}
 
-	runtimeName, ok := (*rd.Val)["runtime"].(string)
+	runtimeName, ok := val["runtime"].(string)
 	if !ok || runtimeName == "" {
 		return fmt.Errorf("invalid reactor: val.runtime must be string")
 	}

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"github.com/aep/apogy/aql"
 	"github.com/aep/apogy/kv"
 	"github.com/labstack/echo/v4"
@@ -294,18 +294,19 @@ func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi
 			return nil, err
 		}
 
-		if modelDoc.Val == nil {
+		modelVal, _ := modelDoc.Val.(map[string]interface{})
+		if modelVal == nil {
 			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid properties")
 		}
 
-		properties, ok := (*modelDoc.Val)["properties"].(map[string]interface{})
+		properties, ok := modelVal["properties"].(map[string]interface{})
 		if !ok {
 			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid properties")
 		}
 
 		for i := range matchedDocs {
 
-			vals := matchedDocs[i].Val
+			vals, _ := matchedDocs[i].Val.(map[string]interface{})
 			if vals == nil {
 				continue
 			}
@@ -333,7 +334,7 @@ func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi
 					continue
 				}
 
-				val, ok := (*vals)[propname]
+				val, ok := vals[propname]
 				if !ok {
 					continue
 				}
@@ -357,7 +358,8 @@ func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi
 					continue
 				}
 
-				(*matchedDocs[i].Val)[propname] = linkResult.Documents[0]
+				vals[propname] = linkResult.Documents[0]
+				matchedDocs[i].Val = vals
 			}
 		}
 	}

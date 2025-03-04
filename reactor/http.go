@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"log/slog"
 	"net/http"
 	"time"
@@ -16,11 +16,13 @@ type HttpReactor struct {
 }
 
 func StartHttpReactor(doc *openapi.Document) (Runtime, error) {
-	if doc.Val == nil {
+
+	val, _ := doc.Val.(map[string]interface{})
+	if val == nil {
 		return nil, fmt.Errorf("val must not be empty")
 	}
 
-	url, ok := (*doc.Val)["url"].(string)
+	url, ok := val["url"].(string)
 	if !ok || url == "" {
 		return nil, fmt.Errorf("val.url must be a non-empty string")
 	}

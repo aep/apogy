@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"encoding/json"
-	"github.com/aep/apogy/api/go"
+	openapi "github.com/aep/apogy/api/go"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 )
@@ -270,4 +270,3 @@ func TestSearchDocuments_Cursor(t *testing.T) {
 		}
 	}
 }
-
