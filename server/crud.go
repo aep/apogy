@@ -13,6 +13,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
+// TODO cant accept msgpack before checking if https://github.com/vmihailenco/msgpack/issues/376 is real
 func (s *server) PutDocument(c echo.Context) error {
 
 	var doc = new(openapi.Document)
@@ -151,6 +152,27 @@ func (s *server) PutDocument(c echo.Context) error {
 }
 
 func (s *server) GetDocument(c echo.Context, model string, id string) error {
+
+	// fastpath
+	if strings.Contains(c.Request().Header.Get("Accept"), "application/msgpack") && model != "Reactor" {
+		path, err := safeDBPath(model, id)
+		if err != nil {
+			return err
+		}
+
+		r := s.kv.Read()
+		defer r.Close()
+
+		bytes, err := r.Get(c.Request().Context(), []byte(path))
+		if err != nil {
+			return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		}
+		if bytes == nil {
+			return echo.NewHTTPError(http.StatusNotFound, "document not found")
+		}
+
+		return c.Blob(http.StatusOK, "application/msgpack", bytes)
+	}
 
 	var doc openapi.Document
 	err := s.getDocument(c.Request().Context(), model, id, &doc)

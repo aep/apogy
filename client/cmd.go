@@ -293,46 +293,23 @@ func query(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 
-	var filters []openapi.Filter
+	var argss []interface{}
 	for _, arg := range args[1:] {
-		filters = append(filters, parseFilter(arg))
+		argss = append(argss, interface{}(arg))
 	}
 
-	var cursor *string
-	for {
+	it := client.Query(context.Background(), args[0], argss...)
 
-		qq := args[0]
-		if cursor != nil {
-			qq = `(cursor="` + *cursor + `") ` + qq
-		}
-
-		resp, err := client.SearchDocumentsWithBodyWithResponse(context.Background(), "application/x-aql", strings.NewReader(qq))
+	for doc, err := range it {
 		if err != nil {
-			log.Fatalf("Failed to search documents: %v", err)
+			log.Fatalf("query error: %s", err)
 		}
-
-		if resp.JSON200 == nil {
-			if resp.JSON400 != nil {
-				log.Fatalf("bad query: %s", *resp.JSON400.Message)
-			}
-			log.Fatalf("Unexpected response: %v", resp.StatusCode())
+		fmt.Println("---")
+		enc, err := yaml.Marshal(doc)
+		if err != nil {
+			log.Fatalf("Failed to encode as YAML: %v", err)
 		}
-
-		for _, doc := range resp.JSON200.Documents {
-			enc, err := yaml.Marshal(doc)
-			if err != nil {
-				log.Fatalf("Failed to encode as YAML: %v", err)
-			}
-			os.Stdout.Write(enc)
-			fmt.Println("---")
-		}
-
-		// If there's no cursor or no IDs returned, we've reached the end
-		if resp.JSON200.Cursor == nil || len(resp.JSON200.Documents) == 0 {
-			break
-		}
-
-		cursor = resp.JSON200.Cursor
+		os.Stdout.Write(enc)
 	}
 }
 

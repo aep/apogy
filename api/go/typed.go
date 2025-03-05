@@ -11,31 +11,32 @@ import (
 	"strings"
 )
 
-type TypedClient[Val any] struct {
+type TypedClient[Doc any] struct {
 	*Client
 	Model string
 }
 
-type TypedDocument[Val any] struct {
-	Document
-	Val Val `json:"val"`
-}
-
-type TypedSearchResponse[Val any] struct {
-	Cursor    *string              `json:"cursor,omitempty"`
-	Documents []TypedDocument[Val] `json:"documents"`
+type TypedSearchResponse[Doc any] struct {
+	Cursor    *string `json:"cursor,omitempty"`
+	Documents []Doc   `json:"documents"`
 }
 
 func parseError(rsp *http.Response) error {
-	var msg ErrorResponse
-	json.NewDecoder(rsp.Body).Decode(&msg)
-	if msg.Message != nil && *msg.Message != "" {
-		return fmt.Errorf("%d: %s", rsp.StatusCode, *msg.Message)
+	var msg struct {
+		Message string `json:"message"`
+		Error   string `json:"error"`
 	}
+	json.NewDecoder(rsp.Body).Decode(&msg)
+	if msg.Message != "" {
+		return fmt.Errorf("%d: %s", rsp.StatusCode, msg.Message)
+	} else if msg.Error != "" {
+		return fmt.Errorf("%d: %s", rsp.StatusCode, msg.Error)
+	}
+
 	return fmt.Errorf("Status %d: %s", rsp.StatusCode, rsp.Status)
 }
 
-func (c *TypedClient[Val]) Get(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*TypedDocument[Val], error) {
+func (c *TypedClient[Doc]) Get(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*Doc, error) {
 	rsp, err := c.GetDocument(ctx, c.Model, id, reqEditors...)
 	if err != nil {
 		return nil, err
@@ -45,7 +46,7 @@ func (c *TypedClient[Val]) Get(ctx context.Context, id string, reqEditors ...Req
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest = new(TypedDocument[Val])
+		var dest = new(Doc)
 		if err := json.NewDecoder(rsp.Body).Decode(dest); err != nil {
 			return nil, err
 		}
@@ -54,7 +55,7 @@ func (c *TypedClient[Val]) Get(ctx context.Context, id string, reqEditors ...Req
 	return nil, parseError(rsp)
 }
 
-func (c *TypedClient[Val]) Put(ctx context.Context, body *TypedDocument[Val], reqEditors ...RequestEditorFn) error {
+func (c *TypedClient[Doc]) Put(ctx context.Context, body *Doc, reqEditors ...RequestEditorFn) error {
 
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
@@ -85,62 +86,10 @@ func (c *TypedClient[Val]) Put(ctx context.Context, body *TypedDocument[Val], re
 	return parseError(rsp)
 }
 
-func (c *TypedClient[Val]) Query(ctx context.Context, aql string, reqEditors ...RequestEditorFn) iter.Seq2[*TypedDocument[Val], error] {
-
-	var cursor *string
-
-	return func(yield func(*TypedDocument[Val], error) bool) {
-
-		qq := aql
-		if cursor != nil {
-			qq = `(cursor="` + *cursor + `") ` + aql
-		}
-
-		rsp, err := c.Client.SearchDocumentsWithBody(context.Background(), "application/x-aql", strings.NewReader(qq))
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-
-		defer rsp.Body.Close()
-
-		switch {
-		case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-			var dest = new(TypedSearchResponse[Val])
-			if err := json.NewDecoder(rsp.Body).Decode(dest); err != nil {
-				yield(nil, err)
-				return
-			}
-			for _, doc := range dest.Documents {
-				if !yield(&doc, nil) {
-					return
-				}
-			}
-
-			cursor = dest.Cursor
-		}
-	}
+func (c *TypedClient[Doc]) Query(ctx context.Context, q string, args ...interface{}) iter.Seq2[*Doc, error] {
+	return query[Doc](c, ctx, q, args...)
 }
 
-func (c *TypedClient[Val]) QueryOne(ctx context.Context, aql string, reqEditors ...RequestEditorFn) (*TypedDocument[Val], error) {
-
-	rsp, err := c.Client.SearchDocumentsWithBody(context.Background(), "application/x-aql", strings.NewReader(aql))
-	if err != nil {
-		return nil, err
-	}
-
-	defer rsp.Body.Close()
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest = new(TypedSearchResponse[Val])
-		if err := json.NewDecoder(rsp.Body).Decode(dest); err != nil {
-			return nil, err
-		}
-		for _, doc := range dest.Documents {
-			return &doc, nil
-		}
-	}
-
-	return nil, fmt.Errorf("not found")
+func (c *TypedClient[Doc]) QueryOne(ctx context.Context, q string, args ...interface{}) (*Doc, error) {
+	return queryOne[Doc](c, ctx, q, args...)
 }

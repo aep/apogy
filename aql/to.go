@@ -11,9 +11,8 @@ func (q *Query) ToSearchRequest() *openapi.SearchRequest {
 	var full = true
 
 	req := &openapi.SearchRequest{
-		Model:  q.Type,
-		Full:   &full,
-		Cursor: q.Cursor,
+		Model: q.Type,
+		Full:  &full,
 	}
 
 	// Map filters

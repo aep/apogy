@@ -54,6 +54,14 @@ type PutDocumentOK struct {
 	Path string `json:"path"`
 }
 
+// Query defines model for Query.
+type Query struct {
+	Cursor *string        `json:"cursor,omitempty"`
+	Limit  *int           `json:"limit,omitempty"`
+	Params *[]interface{} `json:"params,omitempty"`
+	Q      string         `json:"q"`
+}
+
 // ReactorActivation defines model for ReactorActivation.
 type ReactorActivation struct {
 	Id      string `json:"id"`
@@ -100,6 +108,7 @@ type SearchRequest struct {
 type SearchResponse struct {
 	Cursor    *string    `json:"cursor,omitempty"`
 	Documents []Document `json:"documents"`
+	Error     *string    `json:"error,omitempty"`
 }
 
 // ValidationRequest defines model for ValidationRequest.
@@ -117,6 +126,9 @@ type ValidationResponse struct {
 
 // PutDocumentJSONRequestBody defines body for PutDocument for application/json ContentType.
 type PutDocumentJSONRequestBody = Document
+
+// QueryDocumentsJSONRequestBody defines body for QueryDocuments for application/json ContentType.
+type QueryDocumentsJSONRequestBody = Query
 
 // SearchDocumentsJSONRequestBody defines body for SearchDocuments for application/json ContentType.
 type SearchDocumentsJSONRequestBody = SearchRequest
@@ -199,6 +211,11 @@ type ClientInterface interface {
 
 	PutDocument(ctx context.Context, body PutDocumentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// QueryDocumentsWithBody request with any body
+	QueryDocumentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	QueryDocuments(ctx context.Context, body QueryDocumentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SearchDocumentsWithBody request with any body
 	SearchDocumentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -225,6 +242,30 @@ func (c *Client) PutDocumentWithBody(ctx context.Context, contentType string, bo
 
 func (c *Client) PutDocument(ctx context.Context, body PutDocumentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutDocumentRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) QueryDocumentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewQueryDocumentsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) QueryDocuments(ctx context.Context, body QueryDocumentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewQueryDocumentsRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -323,6 +364,46 @@ func NewPutDocumentRequestWithBody(server string, contentType string, body io.Re
 	return req, nil
 }
 
+// NewQueryDocumentsRequest calls the generic QueryDocuments builder with application/json body
+func NewQueryDocumentsRequest(server string, body QueryDocumentsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewQueryDocumentsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewQueryDocumentsRequestWithBody generates requests for QueryDocuments with any type of body
+func NewQueryDocumentsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/q")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewSearchDocumentsRequest calls the generic SearchDocuments builder with application/json body
 func NewSearchDocumentsRequest(server string, body SearchDocumentsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -343,7 +424,7 @@ func NewSearchDocumentsRequestWithBody(server string, contentType string, body i
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/v1/q")
+	operationPath := fmt.Sprintf("/v1/search")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -493,6 +574,11 @@ type ClientWithResponsesInterface interface {
 
 	PutDocumentWithResponse(ctx context.Context, body PutDocumentJSONRequestBody, reqEditors ...RequestEditorFn) (*PutDocumentResponse, error)
 
+	// QueryDocumentsWithBodyWithResponse request with any body
+	QueryDocumentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*QueryDocumentsResponse, error)
+
+	QueryDocumentsWithResponse(ctx context.Context, body QueryDocumentsJSONRequestBody, reqEditors ...RequestEditorFn) (*QueryDocumentsResponse, error)
+
 	// SearchDocumentsWithBodyWithResponse request with any body
 	SearchDocumentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SearchDocumentsResponse, error)
 
@@ -523,6 +609,29 @@ func (r PutDocumentResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PutDocumentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type QueryDocumentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SearchResponse
+	JSON400      *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r QueryDocumentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r QueryDocumentsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -613,6 +722,23 @@ func (c *ClientWithResponses) PutDocumentWithResponse(ctx context.Context, body 
 	return ParsePutDocumentResponse(rsp)
 }
 
+// QueryDocumentsWithBodyWithResponse request with arbitrary body returning *QueryDocumentsResponse
+func (c *ClientWithResponses) QueryDocumentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*QueryDocumentsResponse, error) {
+	rsp, err := c.QueryDocumentsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseQueryDocumentsResponse(rsp)
+}
+
+func (c *ClientWithResponses) QueryDocumentsWithResponse(ctx context.Context, body QueryDocumentsJSONRequestBody, reqEditors ...RequestEditorFn) (*QueryDocumentsResponse, error) {
+	rsp, err := c.QueryDocuments(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseQueryDocumentsResponse(rsp)
+}
+
 // SearchDocumentsWithBodyWithResponse request with arbitrary body returning *SearchDocumentsResponse
 func (c *ClientWithResponses) SearchDocumentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SearchDocumentsResponse, error) {
 	rsp, err := c.SearchDocumentsWithBody(ctx, contentType, body, reqEditors...)
@@ -682,6 +808,39 @@ func ParsePutDocumentResponse(rsp *http.Response) (*PutDocumentResponse, error) 
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseQueryDocumentsResponse parses an HTTP response from a QueryDocumentsWithResponse call
+func ParseQueryDocumentsResponse(rsp *http.Response) (*QueryDocumentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &QueryDocumentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SearchResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	}
 
@@ -778,8 +937,11 @@ type ServerInterface interface {
 	// Create or update a document
 	// (POST /v1)
 	PutDocument(ctx echo.Context) error
-	// Search for documents
+	// Search for documents with AQL
 	// (POST /v1/q)
+	QueryDocuments(ctx echo.Context) error
+	// Search for documents
+	// (POST /v1/search)
 	SearchDocuments(ctx echo.Context) error
 	// Delete a document by model and ID
 	// (DELETE /v1/{model}/{id})
@@ -800,6 +962,15 @@ func (w *ServerInterfaceWrapper) PutDocument(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.PutDocument(ctx)
+	return err
+}
+
+// QueryDocuments converts echo context to params.
+func (w *ServerInterfaceWrapper) QueryDocuments(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.QueryDocuments(ctx)
 	return err
 }
 
@@ -889,7 +1060,8 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	}
 
 	router.POST(baseURL+"/v1", wrapper.PutDocument)
-	router.POST(baseURL+"/v1/q", wrapper.SearchDocuments)
+	router.POST(baseURL+"/v1/q", wrapper.QueryDocuments)
+	router.POST(baseURL+"/v1/search", wrapper.SearchDocuments)
 	router.DELETE(baseURL+"/v1/:model/:id", wrapper.DeleteDocument)
 	router.GET(baseURL+"/v1/:model/:id", wrapper.GetDocument)
 
@@ -930,9 +1102,34 @@ func (response PutDocument409JSONResponse) VisitPutDocumentResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type QueryDocumentsRequestObject struct {
+	Body *QueryDocumentsJSONRequestBody
+}
+
+type QueryDocumentsResponseObject interface {
+	VisitQueryDocumentsResponse(w http.ResponseWriter) error
+}
+
+type QueryDocuments200JSONResponse SearchResponse
+
+func (response QueryDocuments200JSONResponse) VisitQueryDocumentsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type QueryDocuments400JSONResponse ErrorResponse
+
+func (response QueryDocuments400JSONResponse) VisitQueryDocumentsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type SearchDocumentsRequestObject struct {
-	JSONBody *SearchDocumentsJSONRequestBody
-	Body     io.Reader
+	Body *SearchDocumentsJSONRequestBody
 }
 
 type SearchDocumentsResponseObject interface {
@@ -1014,8 +1211,11 @@ type StrictServerInterface interface {
 	// Create or update a document
 	// (POST /v1)
 	PutDocument(ctx context.Context, request PutDocumentRequestObject) (PutDocumentResponseObject, error)
-	// Search for documents
+	// Search for documents with AQL
 	// (POST /v1/q)
+	QueryDocuments(ctx context.Context, request QueryDocumentsRequestObject) (QueryDocumentsResponseObject, error)
+	// Search for documents
+	// (POST /v1/search)
 	SearchDocuments(ctx context.Context, request SearchDocumentsRequestObject) (SearchDocumentsResponseObject, error)
 	// Delete a document by model and ID
 	// (DELETE /v1/{model}/{id})
@@ -1066,20 +1266,44 @@ func (sh *strictHandler) PutDocument(ctx echo.Context) error {
 	return nil
 }
 
+// QueryDocuments operation middleware
+func (sh *strictHandler) QueryDocuments(ctx echo.Context) error {
+	var request QueryDocumentsRequestObject
+
+	var body QueryDocumentsJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
+		return sh.ssi.QueryDocuments(ctx.Request().Context(), request.(QueryDocumentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "QueryDocuments")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(QueryDocumentsResponseObject); ok {
+		return validResponse.VisitQueryDocumentsResponse(ctx.Response())
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // SearchDocuments operation middleware
 func (sh *strictHandler) SearchDocuments(ctx echo.Context) error {
 	var request SearchDocumentsRequestObject
 
-	if strings.HasPrefix(ctx.Request().Header.Get("Content-Type"), "application/json") {
-		var body SearchDocumentsJSONRequestBody
-		if err := ctx.Bind(&body); err != nil {
-			return err
-		}
-		request.JSONBody = &body
+	var body SearchDocumentsJSONRequestBody
+	if err := ctx.Bind(&body); err != nil {
+		return err
 	}
-	if strings.HasPrefix(ctx.Request().Header.Get("Content-Type"), "application/x-aql") {
-		request.Body = ctx.Request().Body
-	}
+	request.Body = &body
 
 	handler := func(ctx echo.Context, request interface{}) (interface{}, error) {
 		return sh.ssi.SearchDocuments(ctx.Request().Context(), request.(SearchDocumentsRequestObject))

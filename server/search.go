@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -13,6 +13,7 @@ import (
 	"github.com/aep/apogy/aql"
 	"github.com/aep/apogy/kv"
 	"github.com/labstack/echo/v4"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 const MAX_RESULTS = 200
@@ -76,7 +77,7 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 	return key, nil
 }
 
-func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string, full bool) (findResult, error) {
+func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string) (findResult, error) {
 
 	// if the filter is by exact id, just return the object directly
 	if filter != nil && filter.Key == "id" && filter.Equal != nil {
@@ -85,12 +86,6 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 			var doc openapi.Document
 			doc.Id = id
 			doc.Model = model
-			if full {
-				err := s.getDocument(ctx, model, id, &doc)
-				if err != nil {
-					return findResult{}, err
-				}
-			}
 			return findResult{documents: []openapi.Document{doc}}, nil
 		}
 	}
@@ -156,12 +151,6 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 			var doc openapi.Document
 			doc.Model = model
 			doc.Id = id
-			if full {
-				err := s.getDocument(ctx, model, id, &doc)
-				if err != nil {
-					return findResult{}, err
-				}
-			}
 			documents = append(documents, doc)
 			lastKey = kv.K
 		}
@@ -179,13 +168,6 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 		nextCursor = &cursor
 	}
 
-	if model == "Reactor" && full {
-		for i, doc := range documents {
-			s.ro.Status(ctx, &doc)
-			documents[i] = doc
-		}
-	}
-
 	return findResult{documents: documents, cursor: nextCursor}, nil
 }
 
@@ -193,28 +175,237 @@ func (s *server) SearchDocuments(c echo.Context) error {
 
 	var req openapi.SearchRequest
 
-	if c.Request().Header.Get("Content-Type") == "application/x-aql" {
-		body, _ := io.ReadAll(c.Request().Body)
-		c.Request().Body.Close()
-		qa, err := aql.Parse(string(body))
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
-		}
-		req = *qa.ToSearchRequest()
-	} else {
-		if err := c.Bind(&req); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
-		}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 	}
 
-	rsp, err := s.query(c.Request().Context(), req)
+	r := s.kv.Read()
+	defer r.Close()
+
+	rsp, err := s.query(c.Request().Context(), r, req)
 	if err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, rsp)
 }
 
-func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi.SearchResponse, error) {
+func (s *server) QueryDocuments(c echo.Context) error {
+
+	var req openapi.Query
+	var qa *aql.Query
+	var err error
+
+	err = c.Bind(&req)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+	}
+
+	if req.Params != nil {
+		qa, err = aql.Parse(req.Q, *req.Params...)
+	} else {
+		qa, err = aql.Parse(req.Q)
+	}
+
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+	}
+
+	srq := *qa.ToSearchRequest()
+	srq.Cursor = req.Cursor
+	srq.Limit = req.Limit
+
+	r := s.kv.Read()
+	defer r.Close()
+
+	// TODO: this is a lot of code. i measured 1/3 improvement vs json for retreving 1K documents,
+	// but is that really worth it?
+	if strings.Contains(c.Request().Header.Get("Accept"), "application/msgpack") {
+
+		c.Response().Header().Set("Content-Type", "application/msgpack")
+
+		var fastpath = false
+		if srq.Links == nil {
+			srq.Full = nil
+			fastpath = true
+		}
+
+		enc := msgpack.NewEncoder(c.Response())
+
+		for {
+
+			// FIXME s.query itself should be an iterator so we can keep the snapshot view during the iteration
+
+			rsp, err := s.query(c.Request().Context(), r, srq)
+			if err != nil {
+				select {
+				case <-c.Request().Context().Done():
+					return nil
+				default:
+					errstr := err.Error()
+					b, _ := msgpack.Marshal(&openapi.SearchResponse{Error: &errstr})
+					return c.Blob(http.StatusBadRequest, "application/msgpack", b)
+				}
+			}
+
+			if fastpath {
+				var fastresponse struct {
+					Documents []msgpack.RawMessage `json:"documents"`
+				}
+
+				fastresponse.Documents, err = s.resolveRawDocs(c.Request().Context(), r, rsp.Documents)
+
+				err = enc.Encode(&fastresponse)
+
+			} else {
+
+				err = enc.Encode(rsp)
+			}
+
+			if err != nil {
+				select {
+				case <-c.Request().Context().Done():
+					return nil
+				default:
+					errstr := err.Error()
+					b, _ := msgpack.Marshal(&openapi.SearchResponse{Error: &errstr})
+					return c.Blob(http.StatusBadRequest, "application/msgpack", b)
+				}
+			}
+
+			if rsp.Cursor == nil {
+				return nil
+			}
+
+			srq.Cursor = rsp.Cursor
+		}
+
+	} else if strings.Contains(c.Request().Header.Get("Accept"), "application/jsonl") {
+
+		c.Response().Header().Set("Content-Type", "application/jsonl")
+
+		for {
+			rsp, err := s.query(c.Request().Context(), r, srq)
+			if err != nil {
+				select {
+				case <-c.Request().Context().Done():
+					return nil
+				default:
+					errstr := err.Error()
+					return c.JSON(http.StatusBadRequest, &openapi.SearchResponse{Error: &errstr})
+				}
+			}
+
+			rsp.Documents, _ = s.resolveFullDocs(c.Request().Context(), r, rsp.Documents)
+
+			err = json.NewEncoder(c.Response()).Encode(rsp)
+			if err != nil {
+				select {
+				case <-c.Request().Context().Done():
+					return nil
+				default:
+					errstr := err.Error()
+					return c.JSON(http.StatusBadRequest, &openapi.SearchResponse{Error: &errstr})
+				}
+			}
+			c.Response().Write([]byte("\n"))
+
+			if rsp.Cursor == nil {
+				return nil
+			}
+
+			srq.Cursor = rsp.Cursor
+		}
+
+	} else {
+
+		rsp, err := s.query(c.Request().Context(), r, srq)
+		if err != nil {
+			return err
+		}
+
+		return c.JSON(http.StatusOK, rsp)
+	}
+
+}
+
+func (s *server) resolveRawDocs(ctx context.Context, r kv.Read, fr []openapi.Document) ([]msgpack.RawMessage, error) {
+	keys := [][]byte{}
+	keysExtraCheck := make(map[string]bool)
+	for _, doc := range fr {
+		path, err := safeDBPath(doc.Model, doc.Id)
+		if err != nil {
+			return nil, err
+		}
+
+		keys = append(keys, path)
+
+		keysExtraCheck[string(path)] = true
+	}
+
+	vals, err := r.BatchGet(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+
+	var ret []msgpack.RawMessage
+
+	for key, val := range vals {
+		if val == nil {
+			continue
+		}
+		if !keysExtraCheck[string(key)] {
+			// unlikely bug in tikv, but lets make extra sure
+			continue
+		}
+		ret = append(ret, msgpack.RawMessage(val))
+	}
+
+	return ret, nil
+}
+
+func (s *server) resolveFullDocs(ctx context.Context, r kv.Read, fr []openapi.Document) ([]openapi.Document, error) {
+
+	keys := [][]byte{}
+	keysExtraCheck := make(map[string]bool)
+	for _, doc := range fr {
+		path, err := safeDBPath(doc.Model, doc.Id)
+		if err != nil {
+			return nil, err
+		}
+
+		keys = append(keys, path)
+
+		keysExtraCheck[string(path)] = true
+	}
+
+	vals, err := r.BatchGet(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+
+	var ret []openapi.Document
+
+	for key, val := range vals {
+
+		if val == nil {
+			continue
+		}
+		if !keysExtraCheck[string(key)] {
+			// unlikely bug in tikv, but lets make extra sure
+			continue
+		}
+
+		var doc openapi.Document
+		if err := msgpack.Unmarshal(val, &doc); err != nil {
+			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
+		}
+
+		ret = append(ret, doc)
+	}
+
+	return ret, nil
+}
+func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest) (*openapi.SearchResponse, error) {
 
 	if req.Model == "" {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "Model is required")
@@ -225,26 +416,21 @@ func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi
 		req.Full = &full
 	}
 
-	r := s.kv.Read()
+	// TODO: do we need this? the search values are empty anyway
 	if r, ok := r.(*kv.TikvRead); ok {
 		r.SetKeyOnly(true)
 	}
-	defer r.Close()
 
 	var limit = MAX_RESULTS
 	if req.Limit != nil {
 		limit = *req.Limit
-	}
-	var full = false
-	if req.Full != nil {
-		full = *req.Full
 	}
 
 	var cursor *string
 	var matchedDocs []openapi.Document
 
 	if req.Filters == nil || len(*req.Filters) == 0 {
-		result, err := s.find(ctx, r, req.Model, "", nil, limit, req.Cursor, full)
+		result, err := s.find(ctx, r, req.Model, "", nil, limit, req.Cursor)
 		if err != nil {
 			return nil, err
 		}
@@ -253,7 +439,7 @@ func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi
 
 	} else {
 
-		result, err := s.find(ctx, r, req.Model, "", &(*req.Filters)[0], limit, req.Cursor, full)
+		result, err := s.find(ctx, r, req.Model, "", &(*req.Filters)[0], limit, req.Cursor)
 		if err != nil {
 			return nil, err
 		}
@@ -263,7 +449,7 @@ func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi
 			allMatch := true
 			for _, filter := range (*req.Filters)[1:] {
 
-				subResult, err := s.find(ctx, r, req.Model, doc.Id, &filter, 1, nil, false)
+				subResult, err := s.find(ctx, r, req.Model, doc.Id, &filter, 1, nil)
 				if err != nil {
 					return nil, err
 				}
@@ -282,6 +468,19 @@ func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi
 			}
 			if allMatch {
 				matchedDocs = append(matchedDocs, result.documents[i])
+			}
+		}
+	}
+
+	if req.Full != nil && *req.Full {
+		matchedDocs, err := s.resolveFullDocs(ctx, r, matchedDocs)
+		if err != nil {
+			return nil, err
+		}
+		if req.Model == "Reactor" {
+			for i, doc := range matchedDocs {
+				s.ro.Status(ctx, &doc)
+				matchedDocs[i] = doc
 			}
 		}
 	}
@@ -348,7 +547,7 @@ func (s *server) query(ctx context.Context, req openapi.SearchRequest) (*openapi
 					Equal: &val,
 				})
 
-				linkResult, err := s.query(ctx, link)
+				linkResult, err := s.query(ctx, r, link)
 				if err != nil {
 					// TODO what to do with dangling link?
 					continue

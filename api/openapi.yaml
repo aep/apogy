@@ -82,7 +82,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PutDocumentOK'
 
-  /v1/q:
+  /v1/search:
     post:
       operationId: searchDocuments
       summary: Search for documents
@@ -92,9 +92,30 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SearchRequest'
-          application/x-aql:
+      responses:
+        '400':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+
+  /v1/q:
+    post:
+      operationId: queryDocuments
+      summary: Search for documents with AQL
+      requestBody:
+        required: true
+        content:
+          application/json:
             schema:
-              type: string
+              $ref: '#/components/schemas/Query'
       responses:
         '400':
           description: Validation Error
@@ -162,6 +183,20 @@ components:
         less: {}
         prefix: {}
 
+    Query:
+      type: object
+      required:
+        - q
+      properties:
+        q:
+          type: string
+        limit:
+          type: integer
+        cursor:
+          type: string
+        params:
+          type: array
+
     SearchRequest:
       type: object
       required:
@@ -190,6 +225,8 @@ components:
       required:
         - documents
       properties:
+        error:
+          type: string
         documents:
           type: array
           items:

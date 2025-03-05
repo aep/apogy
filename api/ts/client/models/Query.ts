@@ -2,10 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { Document } from './Document';
-export type SearchResponse = {
-    error?: string;
-    documents: Array<Document>;
+export type Query = {
+    'q': string;
+    limit?: number;
     cursor?: string;
+    params?: any[];
 };
 

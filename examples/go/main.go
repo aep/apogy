@@ -32,5 +32,11 @@ func main() {
 			panic(err)
 		}
 		fmt.Println(doc.Id)
+
+		var book apogy.BookVal = doc.Val
+		_ = book
+
+		var bookDoc *apogy.Book = doc
+		_ = bookDoc
 	}
 }

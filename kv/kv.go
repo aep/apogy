@@ -17,6 +17,7 @@ type KV interface {
 }
 
 type Read interface {
+	BatchGet(ctx context.Context, keys [][]byte) (map[string][]byte, error)
 	Get(ctx context.Context, key []byte) ([]byte, error)
 	Iter(ctx context.Context, srart []byte, end []byte) iter.Seq2[KeyAndValue, error]
 	Close()

@@ -83,6 +83,19 @@ func TestLexer(t *testing.T) {
 				{TOKEN_EOF, ""},
 			},
 		},
+		{
+			// Test parameters
+			"Book(id=?)",
+			[]Token{
+				{TOKEN_IDENT, "Book"},
+				{TOKEN_LPAREN, "("},
+				{TOKEN_IDENT, "id"},
+				{TOKEN_EQUALS, "="},
+				{TOKEN_PARAM, "?"},
+				{TOKEN_RPAREN, ")"},
+				{TOKEN_EOF, ""},
+			},
+		},
 	}
 
 	for i, tt := range tests {
@@ -208,19 +221,6 @@ func TestParser(t *testing.T) {
 			},
 			shouldError: false,
 		},
-		{
-			input: `(cursor="asdj*&ahsdasjnkad") Book(name="test" count=42 ,,,, enabled=true)`,
-			expected: &Query{
-				Type: "Book",
-				Filter: map[string]interface{}{
-					"name":    "test",
-					"count":   float64(42),
-					"enabled": true,
-				},
-				Cursor: newStr("asdj*\u0026ahsdasjnkad"),
-			},
-			shouldError: false,
-		},
 	}
 
 	for i, tt := range tests {
@@ -282,6 +282,11 @@ func TestEdgeCases(t *testing.T) {
 			input:       `Book(invalid=json{)`,
 			shouldError: true,
 		},
+		{
+			// This should error because we're not providing any parameters
+			input:       "Book(name=?)",
+			shouldError: true,
+		},
 	}
 
 	for i, tt := range tests {
@@ -294,6 +299,134 @@ func TestEdgeCases(t *testing.T) {
 	}
 }
 
+func TestParameterizedQueries(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		params      []interface{}
+		expected    *Query
+		shouldError bool
+	}{
+		{
+			name:  "Single string parameter",
+			input: `Book(name=?)`,
+			params: []interface{}{
+				"Harry Potter",
+			},
+			expected: &Query{
+				Type: "Book",
+				Filter: map[string]interface{}{
+					"name": "Harry Potter",
+				},
+			},
+			shouldError: false,
+		},
+		{
+			name:  "Multiple parameters of different types",
+			input: `Book(name=? count=? available=?)`,
+			params: []interface{}{
+				"Game of Thrones",
+				float64(42),
+				true,
+			},
+			expected: &Query{
+				Type: "Book",
+				Filter: map[string]interface{}{
+					"name":      "Game of Thrones",
+					"count":     float64(42),
+					"available": true,
+				},
+			},
+			shouldError: false,
+		},
+		{
+			name:  "Different operators with parameters",
+			input: `Book(title=? price<? popularity>? prefix^?)`,
+			params: []interface{}{
+				"The Hobbit",
+				float64(20),
+				float64(4),
+				"Lord",
+			},
+			expected: &Query{
+				Type: "Book",
+				Filter: map[string]interface{}{
+					"title":       "The Hobbit",
+					"price<":      float64(20),
+					"popularity>": float64(4),
+					"prefix^":     "Lord",
+				},
+			},
+			shouldError: false,
+		},
+		{
+			name:  "Nested queries with parameters",
+			input: `Book(id=?) { Author(age>?) }`,
+			params: []interface{}{
+				float64(123),
+				float64(30),
+			},
+			expected: &Query{
+				Type: "Book",
+				Filter: map[string]interface{}{
+					"id": float64(123),
+				},
+				Links: []*Query{
+					{
+						Type: "Author",
+						Filter: map[string]interface{}{
+							"age>": float64(30),
+						},
+					},
+				},
+			},
+			shouldError: false,
+		},
+		{
+			name:        "Not enough parameters",
+			input:       `Book(id=? title=?)`,
+			params:      []interface{}{float64(123)},
+			shouldError: true,
+		},
+		{
+			name:   "Too many parameters",
+			input:  `Book(id=?)`,
+			params: []interface{}{float64(123), "extra", "params"},
+			expected: &Query{
+				Type: "Book",
+				Filter: map[string]interface{}{
+					"id": float64(123),
+				},
+			},
+			shouldError: false, // Extra params are ignored
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual, err := Parse(tt.input, tt.params...)
+
+			if tt.shouldError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if !reflect.DeepEqual(actual, tt.expected) {
+				a, _ := json.Marshal(actual)
+				b, _ := json.Marshal(tt.expected)
+				t.Errorf("wrong query.\nexpected=%s\ngot=%s", b, a)
+			}
+		})
+	}
+}
+
 func newStr(i string) *string {
 	return &i
 }
+

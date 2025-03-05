@@ -54,7 +54,7 @@ func runBuild(cmd *cobra.Command, args []string) {
 
 		code, err := yg.ToGolang(yy, yg.Options{
 			Package:  "apogy",
-			RootType: id[len(id)-1],
+			RootType: id[len(id)-1] + "Val",
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -98,6 +98,10 @@ func runBuild(cmd *cobra.Command, args []string) {
 
 const TEMPLATE_MODEL = `
 package apogy
+
+import (
+)
+
 `
 
 const TEMPLATE_MAIN = `
@@ -106,6 +110,16 @@ package apogy
 import (
 	openapi "github.com/aep/apogy/api/go"
 )
+
+
+type Document[Val any] struct {
+	openapi.Document
+	Val Val ` + "`json:\"val\"`" + `
+}
+
+{{range $t, $n := .Types}} 
+type {{$t}} Document[{{$t}}Val]
+{{end}} 
 
 type Client struct {
 	openapi.ClientInterface

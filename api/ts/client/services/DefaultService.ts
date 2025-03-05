@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { Document } from '../models/Document';
 import type { PutDocumentOK } from '../models/PutDocumentOK';
+import type { Query } from '../models/Query';
 import type { SearchRequest } from '../models/SearchRequest';
 import type { SearchResponse } from '../models/SearchResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -82,6 +83,25 @@ export class DefaultService {
      */
     public static searchDocuments(
         requestBody: SearchRequest,
+    ): CancelablePromise<SearchResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/v1/search',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Search for documents with AQL
+     * @param requestBody
+     * @returns SearchResponse Search results
+     * @throws ApiError
+     */
+    public static queryDocuments(
+        requestBody: Query,
     ): CancelablePromise<SearchResponse> {
         return __request(OpenAPI, {
             method: 'POST',

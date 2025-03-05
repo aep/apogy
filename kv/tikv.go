@@ -186,6 +186,32 @@ func (r *TikvRead) Iter(ctx context.Context, start []byte, end []byte) iter.Seq2
 	}
 }
 
+func (r *TikvRead) BatchGet(ctx context.Context, keys [][]byte) (map[string][]byte, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	b, err := r.txn.BatchGet(ctx, keys)
+	if err != nil {
+		log.Debug("[tikv].BatchGet:", "keys", len(keys), "err", err)
+		return b, err
+	}
+	log.Debug("[tikv].BatchGet:", "keys", len(keys))
+	return b, err
+}
+
+func (r *TikvWrite) BatchGet(ctx context.Context, keys [][]byte) (map[string][]byte, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	b, err := r.txn.BatchGet(ctx, keys)
+	if err != nil {
+		log.Debug("[tikv].BatchGet:", "keys", len(keys), "err", err)
+		return b, err
+	}
+	log.Debug("[tikv].BatchGet:", "keys", len(keys))
+	return b, err
+}
+
 func (t *Tikv) Close() {
 	t.k.Close()
 }

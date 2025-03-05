@@ -12,7 +12,12 @@ func (s *server) startup() {
 	dbr := s.kv.Read()
 	defer dbr.Close()
 
-	docs, err := s.find(ctx, dbr, "Reactor", "", nil, 100000, nil, true)
+	docs, err := s.find(ctx, dbr, "Reactor", "", nil, 100000, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	docs.documents, err = s.resolveFullDocs(ctx, dbr, docs.documents)
 	if err != nil {
 		panic(err)
 	}
@@ -24,7 +29,12 @@ func (s *server) startup() {
 		}
 	}
 
-	docs, err = s.find(ctx, dbr, "Model", "", nil, 100000, nil, true)
+	docs, err = s.find(ctx, dbr, "Model", "", nil, 100000, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	docs.documents, err = s.resolveFullDocs(ctx, dbr, docs.documents)
 	if err != nil {
 		panic(err)
 	}

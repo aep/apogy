@@ -24,6 +24,7 @@ const (
 	TOKEN_RBRACE
 	TOKEN_STRING
 	TOKEN_COMMA
+	TOKEN_PARAM // New token type for parameter placeholders
 )
 
 func tokenName(i TokenType) string {
@@ -52,6 +53,8 @@ func tokenName(i TokenType) string {
 		return "STRING"
 	case TOKEN_COMMA:
 		return "COMMA"
+	case TOKEN_PARAM:
+		return "PARAM"
 	}
 	return "ILLEGAL"
 }
@@ -144,6 +147,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{TOKEN_RBRACE, string(l.ch)}
 	case ',':
 		tok = Token{TOKEN_COMMA, string(l.ch)}
+	case '?':
+		tok = Token{TOKEN_PARAM, string(l.ch)}
 	case '"':
 		if str, err := l.readString(); err == nil {
 			tok = Token{TOKEN_STRING, str}
@@ -174,7 +179,6 @@ type Query struct {
 	Type   string
 	Filter map[string]interface{}
 	Links  []*Query
-	Cursor *string
 }
 
 func (q *Query) String() string {
@@ -187,7 +191,7 @@ func (q *Query) String() string {
 			// Determine operator
 			var operator string = "="
 			var actualKey string = k
-			
+
 			if strings.HasSuffix(k, "<") {
 				operator = "<"
 				actualKey = strings.TrimSuffix(k, "<")
@@ -198,7 +202,7 @@ func (q *Query) String() string {
 				operator = "^"
 				actualKey = strings.TrimSuffix(k, "^")
 			}
-			
+
 			switch val := v.(type) {
 			case string:
 				filters = append(filters, fmt.Sprintf(`%s%s"%s"`, actualKey, operator, val))
@@ -223,12 +227,20 @@ func (q *Query) String() string {
 }
 
 type Parser struct {
-	l        *Lexer
-	curToken Token
+	l              *Lexer
+	curToken       Token
+	params         []interface{} // Stores the parameter values
+	paramIndex     int           // Current parameter index
+	collectingOnly bool          // Whether we're only collecting parameter positions without substituting
 }
 
-func NewParser(l *Lexer) *Parser {
-	p := &Parser{l: l}
+func NewParser(l *Lexer, params ...interface{}) *Parser {
+	p := &Parser{
+		l:              l,
+		params:         params,
+		paramIndex:     0,
+		collectingOnly: len(params) == 0,
+	}
 	p.nextToken()
 	return p
 }
@@ -239,33 +251,12 @@ func (p *Parser) nextToken() {
 
 func (p *Parser) ParseQuery() (*Query, error) {
 
-	var opts = make(map[string]interface{})
-
-	for {
-		if p.curToken.Type != TOKEN_LPAREN {
-			break
-		}
-		opts2, err := p.parseFilter()
-		if err != nil {
-			return nil, err
-		}
-		for k, v := range opts2 {
-			if _, exists := opts[k]; exists {
-				return nil, fmt.Errorf("opt %s specified twice", k)
-			}
-			opts[k] = v
-		}
-	}
-
 	if p.curToken.Type != TOKEN_IDENT {
 		return nil, fmt.Errorf("expected identifier, got %s", tokenName(p.curToken.Type))
 	}
 
 	query := &Query{
 		Type: p.curToken.Literal,
-	}
-	if cursor, ok := opts["cursor"].(string); ok {
-		query.Cursor = &cursor
 	}
 
 	p.nextToken()
@@ -319,28 +310,45 @@ func (p *Parser) parseFilter() (map[string]interface{}, error) {
 		p.nextToken()
 
 		// Parse the value
-		if p.curToken.Type != TOKEN_IDENT && p.curToken.Type != TOKEN_STRING {
-			return nil, fmt.Errorf("expected identifier or string as value, got %s", tokenName(p.curToken.Type))
+		if p.curToken.Type != TOKEN_IDENT && p.curToken.Type != TOKEN_STRING && p.curToken.Type != TOKEN_PARAM {
+			return nil, fmt.Errorf("expected identifier, string, or parameter placeholder as value, got %s", tokenName(p.curToken.Type))
 		}
 
-		value := p.curToken.Literal
-
-		// Process the value based on token type and operator
 		var processedValue interface{}
-		if p.curToken.Type == TOKEN_IDENT {
-			if value == "true" {
-				processedValue = true
-			} else if value == "false" {
-				processedValue = false
-			} else if num, err := strconv.ParseFloat(value, 64); err == nil {
-				processedValue = num
+
+		if p.curToken.Type == TOKEN_PARAM {
+			// Handle parameter placeholder
+			if p.collectingOnly {
+				// Just increment the parameter count during collection phase
+				p.paramIndex++
+				processedValue = nil
 			} else {
-				processedValue = value
+				// Check if we have enough parameters
+				if p.paramIndex >= len(p.params) {
+					return nil, fmt.Errorf("not enough parameters provided, needed at least %d", p.paramIndex+1)
+				}
+				processedValue = p.params[p.paramIndex]
+				p.paramIndex++
 			}
-		} else if p.curToken.Type == TOKEN_STRING {
-			processedValue = value
 		} else {
-			return nil, fmt.Errorf("expected value, got %s", tokenName(p.curToken.Type))
+			// Handle literal values
+			value := p.curToken.Literal
+
+			if p.curToken.Type == TOKEN_IDENT {
+				if value == "true" {
+					processedValue = true
+				} else if value == "false" {
+					processedValue = false
+				} else if num, err := strconv.ParseFloat(value, 64); err == nil {
+					processedValue = num
+				} else {
+					processedValue = value
+				}
+			} else if p.curToken.Type == TOKEN_STRING {
+				processedValue = value
+			} else {
+				return nil, fmt.Errorf("expected value, got %s", tokenName(p.curToken.Type))
+			}
 		}
 
 		// Store value with appropriate operator metadata
@@ -396,9 +404,24 @@ func (p *Parser) parseNested() ([]*Query, error) {
 	return links, nil
 }
 
-func Parse(input string) (*Query, error) {
+func Parse(input string, params ...interface{}) (*Query, error) {
+	// First, parse the query once to validate and count parameters
 	l := NewLexer(input)
 	p := NewParser(l)
+	_, err := p.ParseQuery()
+	if err != nil {
+		return nil, err
+	}
+
+	// If parameters are expected, validate that we have enough
+	if p.paramIndex > 0 && len(params) < p.paramIndex {
+		return nil, fmt.Errorf("query contains %d parameter placeholders but only %d values were provided",
+			p.paramIndex, len(params))
+	}
+
+	// Parse again with actual parameter values
+	l = NewLexer(input)
+	p = NewParser(l, params...)
 	return p.ParseQuery()
 }
 
