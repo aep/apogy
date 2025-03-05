@@ -217,69 +217,7 @@ func (s *server) QueryDocuments(c echo.Context) error {
 	r := s.kv.Read()
 	defer r.Close()
 
-	// TODO: this is a lot of code. i measured 1/3 improvement vs json for retreving 1K documents,
-	// but is that really worth it?
-	if strings.Contains(c.Request().Header.Get("Accept"), "application/msgpack") {
-
-		c.Response().Header().Set("Content-Type", "application/msgpack")
-
-		var fastpath = false
-		if srq.Links == nil {
-			srq.Full = nil
-			fastpath = true
-		}
-
-		enc := msgpack.NewEncoder(c.Response())
-
-		for {
-
-			// FIXME s.query itself should be an iterator so we can keep the snapshot view during the iteration
-
-			rsp, err := s.query(c.Request().Context(), r, srq)
-			if err != nil {
-				select {
-				case <-c.Request().Context().Done():
-					return nil
-				default:
-					errstr := err.Error()
-					b, _ := msgpack.Marshal(&openapi.SearchResponse{Error: &errstr})
-					return c.Blob(http.StatusBadRequest, "application/msgpack", b)
-				}
-			}
-
-			if fastpath {
-				var fastresponse struct {
-					Documents []msgpack.RawMessage `json:"documents"`
-				}
-
-				fastresponse.Documents, err = s.resolveRawDocs(c.Request().Context(), r, rsp.Documents)
-
-				err = enc.Encode(&fastresponse)
-
-			} else {
-
-				err = enc.Encode(rsp)
-			}
-
-			if err != nil {
-				select {
-				case <-c.Request().Context().Done():
-					return nil
-				default:
-					errstr := err.Error()
-					b, _ := msgpack.Marshal(&openapi.SearchResponse{Error: &errstr})
-					return c.Blob(http.StatusBadRequest, "application/msgpack", b)
-				}
-			}
-
-			if rsp.Cursor == nil {
-				return nil
-			}
-
-			srq.Cursor = rsp.Cursor
-		}
-
-	} else if strings.Contains(c.Request().Header.Get("Accept"), "application/jsonl") {
+	if strings.Contains(c.Request().Header.Get("Accept"), "application/jsonl") {
 
 		c.Response().Header().Set("Content-Type", "application/jsonl")
 
@@ -294,8 +232,6 @@ func (s *server) QueryDocuments(c echo.Context) error {
 					return c.JSON(http.StatusBadRequest, &openapi.SearchResponse{Error: &errstr})
 				}
 			}
-
-			rsp.Documents, _ = s.resolveFullDocs(c.Request().Context(), r, rsp.Documents)
 
 			err = json.NewEncoder(c.Response()).Encode(rsp)
 			if err != nil {
@@ -326,41 +262,6 @@ func (s *server) QueryDocuments(c echo.Context) error {
 		return c.JSON(http.StatusOK, rsp)
 	}
 
-}
-
-func (s *server) resolveRawDocs(ctx context.Context, r kv.Read, fr []openapi.Document) ([]msgpack.RawMessage, error) {
-	keys := [][]byte{}
-	keysExtraCheck := make(map[string]bool)
-	for _, doc := range fr {
-		path, err := safeDBPath(doc.Model, doc.Id)
-		if err != nil {
-			return nil, err
-		}
-
-		keys = append(keys, path)
-
-		keysExtraCheck[string(path)] = true
-	}
-
-	vals, err := r.BatchGet(ctx, keys)
-	if err != nil {
-		return nil, err
-	}
-
-	var ret []msgpack.RawMessage
-
-	for key, val := range vals {
-		if val == nil {
-			continue
-		}
-		if !keysExtraCheck[string(key)] {
-			// unlikely bug in tikv, but lets make extra sure
-			continue
-		}
-		ret = append(ret, msgpack.RawMessage(val))
-	}
-
-	return ret, nil
 }
 
 func (s *server) resolveFullDocs(ctx context.Context, r kv.Read, fr []openapi.Document) ([]openapi.Document, error) {
@@ -473,7 +374,8 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 	}
 
 	if req.Full != nil && *req.Full {
-		matchedDocs, err := s.resolveFullDocs(ctx, r, matchedDocs)
+		var err error
+		matchedDocs, err = s.resolveFullDocs(ctx, r, matchedDocs)
 		if err != nil {
 			return nil, err
 		}
@@ -495,12 +397,12 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 
 		modelVal, _ := modelDoc.Val.(map[string]interface{})
 		if modelVal == nil {
-			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid properties")
+			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid schema")
 		}
 
-		properties, ok := modelVal["properties"].(map[string]interface{})
+		properties, ok := modelVal["schema"].(map[string]interface{})
 		if !ok {
-			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid properties")
+			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid schema")
 		}
 
 		for i := range matchedDocs {

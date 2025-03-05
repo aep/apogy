@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/vmihailenco/msgpack/v5"
-	"io"
 	"iter"
 	"net/http"
 )
@@ -49,12 +47,10 @@ func queryOne[Document any](client ClientInterface, ctx context.Context, q strin
 	var searchResponse searchResponseT[Document]
 
 	if rsp.Header.Get("Content-Type") == "application/jsonl" {
-
 		err = json.NewDecoder(rsp.Body).Decode(&searchResponse)
 		if err != nil {
 			return nil, err
 		}
-
 	}
 
 	if searchResponse.Error != nil {
@@ -75,7 +71,7 @@ func query[Document any](client ClientInterface, ctx context.Context, q string, 
 			Q:      q,
 			Params: &args,
 		}, func(ctx context.Context, req *http.Request) error {
-			req.Header.Set("Accept", "application/msgpack,application/jsonl")
+			req.Header.Set("Accept", "application/jsonl")
 			return nil
 		})
 		if err != nil {
@@ -85,39 +81,12 @@ func query[Document any](client ClientInterface, ctx context.Context, q string, 
 
 		defer rsp.Body.Close()
 
-		if rsp.StatusCode != 200 {
-			yield(nil, parseError(rsp))
-			return
-		}
+		if rsp.Header.Get("Content-Type") == "application/jsonl" {
 
-		if rsp.Header.Get("Content-Type") == "application/msgpack" {
-
-			br := bufio.NewReader(rsp.Body)
-			dec := msgpack.NewDecoder(br)
-
-			for {
-				var searchResponse searchResponseT[Document]
-				err := dec.Decode(&searchResponse)
-				if err != nil {
-					if err == io.EOF {
-						break
-					}
-					yield(nil, err)
-					return
-				}
-				if searchResponse.Error != nil {
-					yield(nil, errors.New(*searchResponse.Error))
-					return
-				}
-
-				for _, doc := range searchResponse.Documents {
-					if !yield(&doc, nil) {
-						return
-					}
-				}
+			if rsp.StatusCode != 200 {
+				yield(nil, parseError(rsp))
+				return
 			}
-
-		} else if rsp.Header.Get("Content-Type") == "application/jsonl" {
 
 			scanner := bufio.NewScanner(rsp.Body)
 
@@ -153,6 +122,11 @@ func query[Document any](client ClientInterface, ctx context.Context, q string, 
 				return
 			}
 
+		} else {
+			if rsp.StatusCode != 200 {
+				yield(nil, parseError(rsp))
+				return
+			}
 		}
 	}
 }
