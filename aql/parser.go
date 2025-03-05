@@ -25,6 +25,7 @@ const (
 	TOKEN_STRING
 	TOKEN_COMMA
 	TOKEN_PARAM // New token type for parameter placeholders
+	TOKEN_AND   // Logical AND operator (& or &&)
 )
 
 func tokenName(i TokenType) string {
@@ -55,6 +56,8 @@ func tokenName(i TokenType) string {
 		return "COMMA"
 	case TOKEN_PARAM:
 		return "PARAM"
+	case TOKEN_AND:
+		return "AND"
 	}
 	return "ILLEGAL"
 }
@@ -99,6 +102,21 @@ func (l *Lexer) readIdentifier() string {
 		l.readChar()
 	}
 	return l.input[position:l.position]
+}
+
+// Helper function to check if current position contains & or &&
+func (l *Lexer) isAmpersandOperator() bool {
+	if l.ch != '&' {
+		return false
+	}
+	
+	// Check if it's a double ampersand
+	if l.readPosition < len(l.input) && l.input[l.readPosition] == '&' {
+		return true
+	}
+	
+	// Single ampersand is also valid
+	return true
 }
 
 func (l *Lexer) readNumber() string {
@@ -149,6 +167,14 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{TOKEN_COMMA, string(l.ch)}
 	case '?':
 		tok = Token{TOKEN_PARAM, string(l.ch)}
+	case '&':
+		if l.readPosition < len(l.input) && l.input[l.readPosition] == '&' {
+			literal := "&&"
+			l.readChar() // consume the second &
+			tok = Token{TOKEN_AND, literal}
+		} else {
+			tok = Token{TOKEN_AND, string(l.ch)}
+		}
 	case '"':
 		if str, err := l.readString(); err == nil {
 			tok = Token{TOKEN_STRING, str}
@@ -287,7 +313,8 @@ func (p *Parser) parseFilter() (map[string]interface{}, error) {
 
 	for p.curToken.Type != TOKEN_RPAREN && p.curToken.Type != TOKEN_EOF {
 
-		for p.curToken.Type == TOKEN_COMMA {
+		// Skip filter separators (comma or logical AND)
+		for p.curToken.Type == TOKEN_COMMA || p.curToken.Type == TOKEN_AND {
 			p.nextToken()
 		}
 

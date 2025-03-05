@@ -96,6 +96,40 @@ func TestLexer(t *testing.T) {
 				{TOKEN_EOF, ""},
 			},
 		},
+		{
+			// Test single ampersand
+			"Book(name=\"test\" & count=42)",
+			[]Token{
+				{TOKEN_IDENT, "Book"},
+				{TOKEN_LPAREN, "("},
+				{TOKEN_IDENT, "name"},
+				{TOKEN_EQUALS, "="},
+				{TOKEN_STRING, "test"},
+				{TOKEN_AND, "&"},
+				{TOKEN_IDENT, "count"},
+				{TOKEN_EQUALS, "="},
+				{TOKEN_IDENT, "42"},
+				{TOKEN_RPAREN, ")"},
+				{TOKEN_EOF, ""},
+			},
+		},
+		{
+			// Test double ampersand
+			"Book(name=\"test\" && count=42)",
+			[]Token{
+				{TOKEN_IDENT, "Book"},
+				{TOKEN_LPAREN, "("},
+				{TOKEN_IDENT, "name"},
+				{TOKEN_EQUALS, "="},
+				{TOKEN_STRING, "test"},
+				{TOKEN_AND, "&&"},
+				{TOKEN_IDENT, "count"},
+				{TOKEN_EQUALS, "="},
+				{TOKEN_IDENT, "42"},
+				{TOKEN_RPAREN, ")"},
+				{TOKEN_EOF, ""},
+			},
+		},
 	}
 
 	for i, tt := range tests {
@@ -211,6 +245,42 @@ func TestParser(t *testing.T) {
 		},
 		{
 			input: `Book(name="test" count=42 ,,,, enabled=true)`,
+			expected: &Query{
+				Type: "Book",
+				Filter: map[string]interface{}{
+					"name":    "test",
+					"count":   float64(42),
+					"enabled": true,
+				},
+			},
+			shouldError: false,
+		},
+		{
+			input: `Book(name="test" & count=42 & enabled=true)`,
+			expected: &Query{
+				Type: "Book",
+				Filter: map[string]interface{}{
+					"name":    "test",
+					"count":   float64(42),
+					"enabled": true,
+				},
+			},
+			shouldError: false,
+		},
+		{
+			input: `Book(name="test" && count=42 && enabled=true)`,
+			expected: &Query{
+				Type: "Book",
+				Filter: map[string]interface{}{
+					"name":    "test",
+					"count":   float64(42),
+					"enabled": true,
+				},
+			},
+			shouldError: false,
+		},
+		{
+			input: `Book(name="test" & count=42 && enabled=true)`,
 			expected: &Query{
 				Type: "Book",
 				Filter: map[string]interface{}{

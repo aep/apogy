@@ -306,6 +306,7 @@ func (s *server) resolveFullDocs(ctx context.Context, r kv.Read, fr []openapi.Do
 
 	return ret, nil
 }
+
 func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest) (*openapi.SearchResponse, error) {
 
 	if req.Model == "" {
@@ -400,7 +401,7 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid schema")
 		}
 
-		properties, ok := modelVal["schema"].(map[string]interface{})
+		links, ok := modelVal["links"].(map[string]interface{})
 		if !ok {
 			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unable to resolve subquery: model has missing or invalid schema")
 		}
@@ -419,21 +420,17 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 				}
 
 				propname := strings.TrimPrefix(link.Model, "val.")
-				propDef, ok := properties[propname]
+				propDef, ok := links[propname]
 				if !ok {
-					return nil, echo.NewHTTPError(http.StatusBadRequest, "unable to resolve subquery: model has no property "+propname)
+					return nil, echo.NewHTTPError(http.StatusBadRequest, "unable to resolve subquery: not a link "+propname)
 				}
 
-				propMap, ok := propDef.(map[string]interface{})
+				linkDef, ok := propDef.(string)
 				if !ok {
 					continue
 				}
 
-				// Check if this property has a link
-				linkedModel, ok := propMap["link"].(string)
-				if !ok {
-					continue
-				}
+				linkedModel := strings.TrimSpace(strings.TrimPrefix(linkDef, "=>"))
 
 				val, ok := vals[propname]
 				if !ok {

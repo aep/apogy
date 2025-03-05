@@ -2,35 +2,20 @@
 model:   Model
 id:      com.example.Author
 val:
-  properties:
-    name:
-      type: string
-  required:
-    - name
+  schema:
+    name: string
+
 ---
 model:   Model
 id:      com.example.Book
 val:
-  properties:
-    name:
-      type: string
-    author:
-      type:   string
-      link:   com.example.Author
-    coauthors:
-      type:   array
-      items:
-        type: string
-        link: com.example.Author
-    reviews:
-      type: array
-      items:
-        type: object
-    isbn:
-      type: string
-  required:
-    - name
-    - author
+  schema:
+    name:       string
+    author:     any
+    coauthors?: [string]
+  links:
+    author: => com.example.Author
+    coauthors: [=> com.example.Author]
 ---
 model:  com.example.Author
 id: ed0d72c4-2274-4def-97a5-cf1e5c8e4fcf

@@ -86,10 +86,23 @@ func (c *TypedClient[Doc]) Put(ctx context.Context, body *Doc, reqEditors ...Req
 	return parseError(rsp)
 }
 
-func (c *TypedClient[Doc]) Query(ctx context.Context, q string, args ...interface{}) iter.Seq2[*Doc, error] {
+func (c *TypedClient[Doc]) Query(ctx context.Context, args ...interface{}) iter.Seq2[*Doc, error] {
+
+	q := c.Model
+	if len(args) > 0 {
+		q = fmt.Sprintf("%s(%s)", c.Model, args[0])
+		args = args[1:]
+	}
+
 	return query[Doc](c, ctx, q, args...)
 }
 
-func (c *TypedClient[Doc]) QueryOne(ctx context.Context, q string, args ...interface{}) (*Doc, error) {
+func (c *TypedClient[Doc]) QueryOne(ctx context.Context, args ...interface{}) (*Doc, error) {
+	q := c.Model
+	if len(args) > 0 {
+		q = fmt.Sprintf("%s(%s)", c.Model, args[0])
+		args = args[1:]
+	}
+
 	return queryOne[Doc](c, ctx, q, args...)
 }

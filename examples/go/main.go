@@ -19,7 +19,7 @@ func main() {
 
 	fmt.Println("changing book titled", doc.Val.Name)
 
-	doc.Val.Author = "Me lol"
+	doc.Val.Author = "me"
 	err = client.Book.Put(context.Background(), doc)
 	if err != nil {
 		panic(err)
@@ -27,7 +27,22 @@ func main() {
 
 	fmt.Println("listing all books")
 
-	for doc, err := range client.Book.Query(context.Background(), "com.example.Book") {
+	for doc, err := range client.Book.Query(context.Background()) {
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(doc.Id)
+
+		var book apogy.BookVal = doc.Val
+		_ = book
+
+		var bookDoc *apogy.Book = doc
+		_ = bookDoc
+	}
+
+	fmt.Println("listing books with author me")
+
+	for doc, err := range client.Book.Query(context.Background(), "val.author=?", "me") {
 		if err != nil {
 			panic(err)
 		}
