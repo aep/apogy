@@ -89,6 +89,8 @@ func query[Document any](client ClientInterface, ctx context.Context, q string, 
 			}
 
 			scanner := bufio.NewScanner(rsp.Body)
+			buf := make([]byte, 0, 64*1024)
+			scanner.Buffer(buf, 1024*1024)
 
 			for scanner.Scan() {
 

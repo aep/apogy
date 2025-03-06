@@ -55,6 +55,21 @@ func (c *TypedClient[Doc]) Get(ctx context.Context, id string, reqEditors ...Req
 	return nil, parseError(rsp)
 }
 
+func (c *TypedClient[Doc]) Delete(ctx context.Context, id string, reqEditors ...RequestEditorFn) error {
+	rsp, err := c.DeleteDocument(ctx, c.Model, id, reqEditors...)
+	if err != nil {
+		return err
+	}
+
+	defer rsp.Body.Close()
+
+	if rsp.StatusCode >= 300 {
+		return parseError(rsp)
+	}
+
+	return nil
+}
+
 func (c *TypedClient[Doc]) Put(ctx context.Context, body *Doc, reqEditors ...RequestEditorFn) error {
 
 	var bodyReader io.Reader

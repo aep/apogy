@@ -3,6 +3,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: apogy-api
+  namespace: apogy
 spec:
   ports:
     - port: 27666
@@ -14,6 +15,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: apogy-api
+  namespace: apogy
 spec:
   replicas: 1
   selector:
@@ -26,7 +28,7 @@ spec:
     spec:
       containers:
       - name: apogy
-        image: ghcr.io/aep/apogy:v0.0.6
+        image: ghcr.io/aep/apogy:v0.0.8
         ports:
         - containerPort: 27666
         args: [ 'server' ]
@@ -38,7 +40,7 @@ apiVersion: pingcap.com/v1alpha1
 kind: TidbCluster
 metadata:
   name: apogy-tikv
-  namespace: default
+  namespace: apogy
 
 spec:
   #######################
@@ -333,7 +335,7 @@ spec:
     mountClusterClientSecret: true
 
     ## The storageClassName of the persistent volume for PD data storage.
-    # storageClassName: ""
+    storageClassName: "lv"
 
     ## defines additional volumes for which PVCs will be created by StatefulSet controller
     # storageVolumes:
