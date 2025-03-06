@@ -18,8 +18,8 @@ func (s *server) validateMeta(doc *openapi.Document) error {
 	if len(doc.Id) < 1 {
 		return fmt.Errorf("validation error: /id must not be empty")
 	}
-	if len(doc.Id) > 64 {
-		return fmt.Errorf("validation error: /id must be less than 64 bytes")
+	if len(doc.Id) > 1024 {
+		return fmt.Errorf("validation error: /id must be less than 1024 bytes")
 	}
 
 	for _, char := range doc.Model {
