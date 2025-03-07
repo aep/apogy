@@ -28,6 +28,9 @@ func setupTestServer(t *testing.T) (*echo.Echo, *server) {
 
 	s := newServer(kv, bs)
 	e := echo.New()
+	e.Binder = &Binder{
+		defaultBinder: &echo.DefaultBinder{},
+	}
 
 	// Clean up test data using the Delete function
 	testDocuments := []struct {
@@ -368,15 +371,15 @@ func TestPutDocument_Update(t *testing.T) {
 	var storedDoc openapi.Document
 	err = json.Unmarshal(getRec.Body.Bytes(), &storedDoc)
 	assert.NoError(t, err)
-	
+
 	// Convert the entire Val to JSON and back to a map to handle various potential types
 	var valMap map[string]interface{}
 	valBytes, err := json.Marshal(storedDoc.Val)
 	assert.NoError(t, err, "Failed to marshal storedDoc.Val to JSON")
-	
+
 	err = json.Unmarshal(valBytes, &valMap)
 	assert.NoError(t, err, "Failed to unmarshal JSON to map")
-	
+
 	// Now we can safely access the map
 	assert.Equal(t, "updated", valMap["data"])
 	assert.NotNil(t, storedDoc.Version)

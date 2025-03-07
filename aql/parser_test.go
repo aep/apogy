@@ -499,4 +499,3 @@ func TestParameterizedQueries(t *testing.T) {
 func newStr(i string) *string {
 	return &i
 }
-

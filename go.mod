@@ -7,6 +7,7 @@ require (
 	github.com/aep/yema v0.0.0-20250304133924-8c8bdf45f7b2
 	github.com/labstack/echo/v4 v4.11.4
 	github.com/lmittmann/tint v1.0.7
+	github.com/maypok86/otter v1.2.4
 	github.com/nats-io/nats-server/v2 v2.10.25
 	github.com/oapi-codegen/runtime v1.1.1
 	github.com/pingcap/log v1.1.1-0.20221110025148-ca232912c9f3
@@ -29,8 +30,10 @@ require (
 	github.com/cznic/mathutil v0.0.0-20181122101859-297441e03548 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2 // indirect
+	github.com/dolthub/maphash v0.1.0 // indirect
 	github.com/elastic/gosigar v0.14.2 // indirect
 	github.com/emicklei/proto v1.14.0 // indirect
+	github.com/gammazero/deque v0.2.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/golang/protobuf v1.5.4 // indirect

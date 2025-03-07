@@ -42,6 +42,11 @@ func (s *server) PutDocument(c echo.Context) error {
 	w2 := s.kv.Write()
 	defer w2.Close()
 
+	model, err := s.getModel(c.Request().Context(), doc.Model)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
 	path, err := safeDBPath(doc.Model, doc.Id)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -68,7 +73,7 @@ func (s *server) PutDocument(c echo.Context) error {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
-			if err := s.deleteIndex(w2, old); err != nil {
+			if err := s.deleteIndex(c.Request().Context(), w2, model, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
 			}
 
@@ -103,7 +108,7 @@ func (s *server) PutDocument(c echo.Context) error {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
-			if err := s.deleteIndex(w2, old); err != nil {
+			if err := s.deleteIndex(c.Request().Context(), w2, model, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
 			}
 
@@ -133,8 +138,8 @@ func (s *server) PutDocument(c echo.Context) error {
 
 	w2.Put([]byte(path), bytes)
 
-	if err := s.createIndex(w2, doc); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	if err := s.createIndex(c.Request().Context(), w2, model, doc); err != nil {
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	}
 
 	if err := w2.Commit(c.Request().Context()); err != nil {
@@ -257,8 +262,13 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	modell, err := s.getModel(c.Request().Context(), doc.Model)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
 	// Remove indexes first
-	if err := s.deleteIndex(w, doc); err != nil {
+	if err := s.deleteIndex(c.Request().Context(), w, modell, doc); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
 	}
 

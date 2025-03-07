@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -47,8 +48,19 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 			key = append(key, 0xff)
 			key = append(key, []byte(strVal)...)
 			key = append(key, 0xff)
+
+		} else if num, ok := (*filter.Equal).(json.Number); ok {
+			vbin := make([]byte, 8)
+			if i64, err := num.Int64(); err == nil {
+				binary.LittleEndian.PutUint64(vbin, uint64(i64))
+			} else {
+				return nil, fmt.Errorf("%s can't be used as equal val", num)
+			}
+			key = append(key, 0xff)
+			key = append(key, []byte(vbin)...)
+			key = append(key, 0xff)
 		} else {
-			return nil, fmt.Errorf("%T can't be used as search val", *filter.Equal)
+			return nil, fmt.Errorf("%T can't be used as euqal val", *filter.Equal)
 		}
 	} else if filter.Greater != nil {
 		if strVal, ok := (*filter.Greater).(string); ok {
@@ -78,6 +90,12 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 }
 
 func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string) (findResult, error) {
+
+	if filter == nil || filter.Key == "id" {
+		if r, ok := r.(*kv.TikvRead); ok {
+			r.SetKeyOnly(true)
+		}
+	}
 
 	// if the filter is by exact id, just return the object directly
 	if filter != nil && filter.Key == "id" && filter.Equal != nil {
@@ -141,11 +159,19 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 			return findResult{}, err
 		}
 
-		idx := bytes.Split(kv.K, []byte{0xff})
-		if len(idx) < 3 {
-			continue
+		var id string
+
+		if filter == nil || filter.Key == "id" {
+			idx := bytes.Split(kv.K, []byte{0xff})
+			if len(idx) < 3 {
+				continue
+			}
+			id = string(idx[len(idx)-2])
+		} else {
+			vdx := bytes.Split(kv.V, []byte{0xff})
+			id = string(vdx[0])
 		}
-		id := string(idx[len(idx)-2])
+
 		if !seen[id] {
 			seen[id] = true
 			var doc openapi.Document
@@ -316,11 +342,6 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 	if req.Links != nil && len(*req.Links) > 0 {
 		var full = true
 		req.Full = &full
-	}
-
-	// TODO: do we need this? the search values are empty anyway
-	if r, ok := r.(*kv.TikvRead); ok {
-		r.SetKeyOnly(true)
 	}
 
 	var limit = MAX_RESULTS

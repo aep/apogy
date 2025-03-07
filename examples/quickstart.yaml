@@ -9,6 +9,8 @@ val:
       - author: string
         text: string
     isbn?: string
+  index:
+    isbn: unique
   reactors:
     - schema
 ---
@@ -17,19 +19,10 @@ id: a410d488-3d33-4e18-af26-6f818968b015
 val:
   name: Dune
   author: Frank Herbert
+  isbn: "123123"
   reviews:
     - author: pete
       text: wow so much sand
----
-model:  com.example.Book
-id: fa2f095b-6156-4338-8b69-cda0a5090c83
-version: 1
-val:
-  name: Dune
-  author: Not Frank Herbert
-  reviews:
-    - author: pete
-      text: wtf no sand
 ---
 model:  com.example.Book
 id: f1b3d38a-1c36-40a0-a7d3-076a21aa4bae
@@ -257,7 +250,7 @@ val:
   author: Unicode Heart
 ---
 model:  com.example.Book
-id: d9e01f23-4a56-7b89-c012-d345e6789f01
+id: this-violates-schema
 val:
   name: 2
   author: Zero OneWriter

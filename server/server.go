@@ -16,18 +16,30 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/maypok86/otter"
 )
 
 type server struct {
-	kv kv.KV
-	bs bus.Bus
-	ro *reactor.Reactor
+	kv         kv.KV
+	bs         bus.Bus
+	ro         *reactor.Reactor
+	modelCache otter.Cache[string, *Model]
 }
 
 func newServer(kv kv.KV, bs bus.Bus) *server {
+
+	cache, err := otter.MustBuilder[string, *Model](100000).
+		WithTTL(60 * time.Second).
+		Build()
+
+	if err != nil {
+		panic(err)
+	}
+
 	nu := &server{
-		kv: kv,
-		bs: bs,
+		kv:         kv,
+		bs:         bs,
+		modelCache: cache,
 	}
 	nu.ro = reactor.NewReactor()
 	return nu
@@ -47,6 +59,10 @@ func Main(caCertPath, serverCertPath, serverKeyPath string) {
 	s := newServer(kv, st)
 	e := echo.New()
 	e.HideBanner = true
+
+	e.Binder = &Binder{
+		defaultBinder: &echo.DefaultBinder{},
+	}
 
 	// Add logging middleware
 	e.Use(loggingMiddleware)

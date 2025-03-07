@@ -109,12 +109,12 @@ func (l *Lexer) isAmpersandOperator() bool {
 	if l.ch != '&' {
 		return false
 	}
-	
+
 	// Check if it's a double ampersand
 	if l.readPosition < len(l.input) && l.input[l.readPosition] == '&' {
 		return true
 	}
-	
+
 	// Single ampersand is also valid
 	return true
 }

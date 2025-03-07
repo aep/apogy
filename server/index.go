@@ -1,32 +1,33 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
-	openapi "github.com/aep/apogy/api/go"
-	"github.com/aep/apogy/kv"
 	"log/slog"
 	"math"
+
+	"encoding/json"
+	openapi "github.com/aep/apogy/api/go"
+	"github.com/aep/apogy/kv"
 )
 
-func (s *server) deleteIndex(w kv.Write, object *openapi.Document) error {
-	pathPrefix := []byte(fmt.Sprintf("f\xff%s\xffval", object.Model))
-	pathPostfix := []byte(fmt.Sprintf("%s\xff", object.Id))
-	return s.writeIndexI(w, pathPrefix, pathPostfix, object.Val, true)
+func (s *server) deleteIndex(ctx context.Context, w kv.Write, model *Model, object *openapi.Document) error {
+	return s.writeIndexI(ctx, w, model, []byte(object.Id), "val", object.Val, true)
 }
 
-func (s *server) createIndex(w kv.Write, object *openapi.Document) error {
-	pathPrefix := []byte(fmt.Sprintf("f\xff%s\xffval", object.Model))
-	pathPostfix := []byte(fmt.Sprintf("%s\xff", object.Id))
-	return s.writeIndexI(w, pathPrefix, pathPostfix, object.Val, false)
+func (s *server) createIndex(ctx context.Context, w kv.Write, model *Model, object *openapi.Document) error {
+	return s.writeIndexI(ctx, w, model, []byte(object.Id), "val", object.Val, false)
 }
 
-func (s *server) writeIndexI(w kv.Write, pathPrefix []byte, pathPostfix []byte, obj any, delete bool) error {
+func (s *server) writeIndexI(ctx context.Context, w kv.Write, model *Model, objectId []byte, path string, obj any, delete bool) error {
+
 	switch v := obj.(type) {
 
 	case []interface{}:
 		for _, v := range v {
-			err := s.writeIndexI(w, pathPrefix, pathPostfix, v, delete)
+			err := s.writeIndexI(ctx, w, model, objectId, path, v, delete)
 			if err != nil {
 				return err
 			}
@@ -51,9 +52,8 @@ func (s *server) writeIndexI(w kv.Write, pathPrefix []byte, pathPostfix []byte, 
 			}
 
 			if safe {
-				pathPrefix2 := append(pathPrefix, '.')
-				pathPrefix2 = append(pathPrefix2, kbin...)
-				err := s.writeIndexI(w, pathPrefix2, pathPostfix, v, delete)
+				path2 := path + "." + k
+				err := s.writeIndexI(ctx, w, model, objectId, path2, v, delete)
 				if err != nil {
 					return err
 				}
@@ -76,15 +76,23 @@ func (s *server) writeIndexI(w kv.Write, pathPrefix []byte, pathPostfix []byte, 
 			}
 
 			if safe {
-				pathPrefix2 := append(pathPrefix, '.')
-				pathPrefix2 = append(pathPrefix2, kbin...)
-				err := s.writeIndexI(w, pathPrefix2, pathPostfix, v, delete)
+				path2 := path + "." + k
+				err := s.writeIndexI(ctx, w, model, objectId, path2, v, delete)
 				if err != nil {
 					return err
 				}
 			}
 		}
 	case string:
+
+		unique := model.Index[path] == "unique"
+
+		if len(v) > 128 {
+			if unique {
+				return fmt.Errorf("value of %s too large for unique index", path)
+			}
+			return nil
+		}
 
 		vbin := []byte(v)
 		safe := true
@@ -94,35 +102,86 @@ func (s *server) writeIndexI(w kv.Write, pathPrefix []byte, pathPostfix []byte, 
 				break
 			}
 		}
+
+		if !safe {
+			if unique {
+				return fmt.Errorf("value of %s too large for unique index", path)
+			}
+			return nil
+		}
+
+		p := []byte("f\xff")
+		p = append(p, []byte(model.Id)...)
+		p = append(p, 0xff)
+		p = append(p, []byte(path)...)
+		p = append(p, 0xff)
+		p = append(p, vbin...)
+		p = append(p, 0xff)
+
+		if unique {
+
+			p := append(p, 0xff)
+			if delete {
+				w.Del(p)
+			} else {
+				ev, err := w.Get(ctx, p)
+				if err == nil {
+					evv := bytes.Split(ev, []byte{0xff})
+					return fmt.Errorf("unique index in key %s is already set by document id %s", path, string(evv[0]))
+				}
+				w.Put(p, append(objectId, 0xff))
+			}
+		}
+
 		if safe && len(vbin) < 128 {
-			p := pathPrefix
+			p = append(p, objectId...)
 			p = append(p, 0xff)
-			p = append(p, vbin...)
-			p = append(p, 0xff)
-			p = append(p, pathPostfix...)
 
 			if delete {
 				w.Del(p)
 			} else {
-				w.Put(p, []byte{0})
+				w.Put(p, append(objectId, 0xff))
 			}
 		}
 
-	case float64:
+	case json.Number:
 
-		bits := math.Float64bits(v)
-		bytes := make([]byte, 8)
-		binary.LittleEndian.PutUint64(bytes, bits)
+		vbin := make([]byte, 8)
+		if i64, err := v.Int64(); err == nil {
+			binary.LittleEndian.PutUint64(vbin, uint64(i64))
+		} else if f64, err := v.Float64(); err == nil {
+			bits := math.Float64bits(f64)
+			binary.LittleEndian.PutUint64(vbin, bits)
+		} else {
+			return nil
+		}
 
-		p := pathPrefix
+		unique := model.Index[path] == "unique"
+
+		p := []byte("f\xff")
+		p = append(p, []byte(model.Id)...)
 		p = append(p, 0xff)
-		p = append(p, bytes...)
+		p = append(p, []byte(path)...)
 		p = append(p, 0xff)
-		p = append(p, pathPostfix...)
+		p = append(p, vbin...)
+		p = append(p, 0xff)
+
+		if unique {
+			p := append(p, 0xff)
+			ev, err := w.Get(ctx, p)
+			if err == nil {
+				evv := bytes.Split(ev, []byte{0xff})
+				return fmt.Errorf("unique index in key %s is already set by document id %s", path, string(evv[0]))
+			}
+		}
+
+		p = append(p, objectId...)
+		p = append(p, 0xff)
+
 		if delete {
 			w.Del(p)
 		} else {
-			w.Put(p, []byte{0})
+			w.Put(p, append(objectId, 0xff))
 		}
 
 	default:
