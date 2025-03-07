@@ -2,9 +2,12 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -96,7 +99,7 @@ func parseFile(file string) ([]openapi.Document, error) {
 	var err error
 
 	if file == "-" {
-		data, err = ioutil.ReadAll(os.Stdin)
+		data, err = io.ReadAll(os.Stdin)
 	} else {
 		data, err = os.ReadFile(file)
 	}
@@ -129,7 +132,56 @@ func getClient() (*openapi.ClientWithResponses, error) {
 		addr = "http://localhost:27666"
 	}
 
-	client, err := openapi.NewClientWithResponses(addr)
+	// Set up TLS config if client certs are provided
+	clientCertPath := os.Getenv("APOGY_CLIENT_CERT")
+	clientKeyPath := os.Getenv("APOGY_CLIENT_KEY")
+	caCertPath := os.Getenv("APOGY_CA_CERT")
+
+	var httpClient *http.Client
+	if clientCertPath != "" && clientKeyPath != "" {
+		// Load client cert and key
+		cert, err := tls.LoadX509KeyPair(clientCertPath, clientKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate and key: %v", err)
+		}
+
+		// Create TLS config
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+
+		// Load CA cert if provided
+		if caCertPath != "" {
+			caCert, err := os.ReadFile(caCertPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read CA certificate: %v", err)
+			}
+
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCert) {
+				return nil, fmt.Errorf("failed to append CA certificate")
+			}
+			tlsConfig.RootCAs = caCertPool
+		}
+
+		// Create HTTP client with the TLS config
+		transport := &http.Transport{
+			TLSClientConfig: tlsConfig,
+		}
+		httpClient = &http.Client{
+			Transport: transport,
+		}
+	}
+
+	// If httpClient is configured, use it, otherwise use default
+	var client *openapi.ClientWithResponses
+	var err error
+	if httpClient != nil {
+		client, err = openapi.NewClientWithResponses(addr, openapi.WithHTTPClient(httpClient))
+	} else {
+		client, err = openapi.NewClientWithResponses(addr)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %v", err)
 	}
@@ -336,7 +388,7 @@ func edit(cmd *cobra.Command, args []string) {
 	}
 
 	// Create temporary file
-	tmpfile, err := ioutil.TempFile("", "apogy-edit-*.yaml")
+	tmpfile, err := os.CreateTemp("", "apogy-edit-*.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
