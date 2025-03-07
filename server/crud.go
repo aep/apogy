@@ -10,6 +10,7 @@ import (
 
 	openapi "github.com/aep/apogy/api/go"
 	"github.com/labstack/echo/v4"
+	tikerr "github.com/tikv/client-go/v2/error"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -64,7 +65,7 @@ func (s *server) PutDocument(c echo.Context) error {
 		// Handle versioned updates
 		bytes, err := w2.Get(c.Request().Context(), []byte(path))
 		if err != nil {
-			if !strings.Contains(err.Error(), "not exist") {
+			if !tikerr.IsErrNotFound(err) {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 			}
 		} else if len(bytes) > 0 {
@@ -99,7 +100,7 @@ func (s *server) PutDocument(c echo.Context) error {
 		bytes, err := r.Get(c.Request().Context(), []byte(path))
 		r.Close()
 		if err != nil {
-			if !strings.Contains(err.Error(), "not exist") {
+			if !tikerr.IsErrNotFound(err) {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 			}
 		} else if len(bytes) > 0 {
@@ -143,7 +144,11 @@ func (s *server) PutDocument(c echo.Context) error {
 	}
 
 	if err := w2.Commit(c.Request().Context()); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
+		if tikerr.IsErrWriteConflict(err) {
+			return echo.NewHTTPError(http.StatusConflict, fmt.Sprintf("preempted by a different parallel write"))
+		} else {
+			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
+		}
 	}
 
 	err = s.ro.Reconcile(c.Request().Context(), old, doc)
@@ -228,7 +233,7 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 	// First get the document to remove its indexes
 	bytes, err := w.Get(c.Request().Context(), []byte(path))
 	if err != nil {
-		if strings.Contains(err.Error(), "not exist") {
+		if tikerr.IsErrNotFound(err) {
 			return echo.NewHTTPError(http.StatusNotFound, "document not found")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))

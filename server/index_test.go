@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"bytes"
@@ -177,7 +180,7 @@ func TestDeleteIndex(t *testing.T) {
 	}
 
 	docBytes, _ := json.Marshal(testDoc)
-	req := httptest.NewRequest(http.MethodPut, "/documents/com.example.IndexTest/doc1", bytes.NewReader(docBytes))
+	req := httptest.NewRequest(http.MethodPost, "/v1", bytes.NewReader(docBytes))
 	req.Header.Set(echo.HeaderContentType, "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -371,4 +374,129 @@ func TestArrayValueIndexing(t *testing.T) {
 		assert.Len(t, response.Documents, 1)
 		assert.Equal(t, "doc1", response.Documents[0].Id)
 	}
+}
+
+func TestUniqueIndexConstraintRaceCondition(t *testing.T) {
+	e, s := setupTestServer(t)
+	_ = setupIndexTestData(t, e, s)
+
+	// First, ensure that no document exists with our test code
+	const uniqueCode = "RACE-CODE-123"
+
+	// Delete any existing document with this code (if exists from previous test runs)
+	codeValue := uniqueCode
+	var codeInterface interface{} = codeValue
+	filters := []openapi.Filter{
+		{
+			Key:   "val.code",
+			Equal: &codeInterface,
+		},
+	}
+
+	searchReq := openapi.SearchRequest{
+		Model:   "com.example.IndexTest",
+		Filters: &filters,
+	}
+
+	reqBytes, _ := json.Marshal(searchReq)
+	req := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(reqBytes))
+	req.Header.Set(echo.HeaderContentType, "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := s.SearchDocuments(c)
+	assert.NoError(t, err)
+
+	var response openapi.SearchResponse
+	json.Unmarshal(rec.Body.Bytes(), &response)
+
+	// If a document with this code exists, delete it
+	if len(response.Documents) > 0 {
+		docID := response.Documents[0].Id
+		req = httptest.NewRequest(http.MethodDelete, "/v1/", nil)
+		rec = httptest.NewRecorder()
+		c = e.NewContext(req, rec)
+		err = s.DeleteDocument(c, "com.example.IndexTest", docID)
+		assert.NoError(t, err)
+	}
+
+	const concurrentInserts = 50
+
+	// Use WaitGroup to ensure all goroutines complete
+	var wg sync.WaitGroup
+	wg.Add(concurrentInserts)
+
+	// Track success/failure counts
+	var successCount int32
+	var conflictCount int32
+
+	// Launch concurrent document insertion attempts
+	for i := 0; i < concurrentInserts; i++ {
+		go func(docID string) {
+			defer wg.Done()
+
+			// Create document with the same unique code value
+			doc := openapi.Document{
+				Model: "com.example.IndexTest",
+				Id:    docID,
+				Val: &map[string]interface{}{
+					"name":  "Race Test Document " + docID,
+					"code":  uniqueCode, // All documents have the same code
+					"count": 1,
+				},
+			}
+
+			docBytes, _ := json.Marshal(doc)
+			req := httptest.NewRequest(http.MethodPost, "/v1", bytes.NewReader(docBytes))
+			req.Header.Set(echo.HeaderContentType, "application/json")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := s.PutDocument(c)
+			if err == nil {
+				atomic.AddInt32(&successCount, 1)
+			} else {
+				he, ok := err.(*echo.HTTPError)
+				if ok && he.Code == http.StatusConflict {
+					atomic.AddInt32(&conflictCount, 1)
+				} else {
+					t.Logf("Unexpected error type for doc %s: %v", docID, err)
+				}
+			}
+		}(fmt.Sprintf("racedoc%d", i))
+	}
+
+	// Wait for all goroutines to finish
+	wg.Wait()
+
+	// Verify that exactly one document succeeded and the rest failed with conflict
+	assert.Equal(t, int32(1), successCount, "Exactly one document should have been inserted successfully")
+	assert.Equal(t, int32(concurrentInserts-1), conflictCount, "The rest should have failed with conflict errors")
+
+	// Verify that we can retrieve the document that was inserted
+	codeValue = uniqueCode
+	codeInterface = codeValue
+	filters = []openapi.Filter{
+		{
+			Key:   "val.code",
+			Equal: &codeInterface,
+		},
+	}
+
+	searchReq = openapi.SearchRequest{
+		Model:   "com.example.IndexTest",
+		Filters: &filters,
+	}
+
+	reqBytes, _ = json.Marshal(searchReq)
+	req = httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(reqBytes))
+	req.Header.Set(echo.HeaderContentType, "application/json")
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	err = s.SearchDocuments(c)
+	assert.NoError(t, err)
+
+	json.Unmarshal(rec.Body.Bytes(), &response)
+	assert.Len(t, response.Documents, 1, "There should be exactly one document with the unique code")
 }
