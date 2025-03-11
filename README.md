@@ -65,7 +65,7 @@ val:
     author: string
     isbn?: string
   reactors:
-    - cue: |
+    - cue:
         import "strings"
         name: strings.MinRunes(2)
         validatedByCue: "yes"
@@ -120,3 +120,13 @@ however trying to change the val while using an outdated version will fail
 
     Failed to put object: 409: version is out of date
 
+
+## mutations
+
+while concurrent puts will fail, concurrent mutations never fail
+
+    model:   com.example.Oligarch
+    id:      bezos
+    mut:
+      money:
+        add: 1200000000000

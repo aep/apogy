@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	openapi "github.com/aep/apogy/api/go"
 )
@@ -129,7 +130,16 @@ func (ro *Reactor) Validate(ctx context.Context, old *openapi.Document, nuw *ope
 	return nuw, nil
 }
 
+// FIXME: reconcilers actually need to be durable i.e. call them forever until it succeeds but i need distributed locking first
+
 func (ro *Reactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document) error {
+
+	var modelName string
+	if nuw == nil {
+		modelName = old.Model
+	} else {
+		modelName = nuw.Model
+	}
 
 	if nuw == nil && old != nil && old.Model == "Model" {
 
@@ -147,13 +157,6 @@ func (ro *Reactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *op
 		ro.lock.Unlock()
 	}
 
-	var modelName string
-	if nuw == nil {
-		modelName = old.Model
-	} else {
-		modelName = nuw.Model
-	}
-
 	ro.lock.RLock()
 	aa := ro.models2reactors[modelName]
 	ro.lock.RUnlock()
@@ -166,11 +169,20 @@ func (ro *Reactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *op
 
 		if rt != nil {
 
-			// FIXME: reconcilers actually need to be durable i.e. call them forever until it succeeds but i need distributed locking first
+			var delay = 10 * time.Millisecond
+			for i := 0; ; i++ {
 
-			err := rt.Reconcile(ctx, old, nuw, a.args)
-			if err != nil {
-				return err
+				err := rt.Reconcile(ctx, old, nuw, a.args)
+
+				if err == nil {
+					break
+				}
+				slog.Warn("reconciler", "name", a.reactorName, "err", err)
+				if i > 10 {
+					return err
+				}
+				time.Sleep(delay)
+				delay = 2 * delay
 			}
 		}
 	}

@@ -14,7 +14,6 @@ import (
 	"github.com/aep/apogy/aql"
 	"github.com/aep/apogy/kv"
 	"github.com/labstack/echo/v4"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 const MAX_RESULTS = 200
@@ -323,7 +322,7 @@ func (s *server) resolveFullDocs(ctx context.Context, r kv.Read, fr []openapi.Do
 		}
 
 		var doc openapi.Document
-		if err := msgpack.Unmarshal(val, &doc); err != nil {
+		if err := DeserializeStore(val, &doc); err != nil {
 			return nil, echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 		}
 

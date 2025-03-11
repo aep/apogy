@@ -9,6 +9,7 @@ export type Document = {
     version?: number;
     history?: History;
     val: any;
+    mut?: any;
     status?: Record<string, any>;
 };
 

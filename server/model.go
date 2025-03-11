@@ -23,12 +23,18 @@ var MODEL_REACTOR = &Model{
 	Id: "Reactor",
 }
 
+var MODEL_MUTATION = &Model{
+	Id: "Mutation",
+}
+
 func (s *server) getModel(ctx context.Context, id string) (*Model, error) {
 
 	if id == "Model" {
 		return MODEL_MODEL, nil
 	} else if id == "Reactor" {
 		return MODEL_REACTOR, nil
+	} else if id == "Mutation" {
+		return MODEL_MUTATION, nil
 	}
 
 	model, found := s.modelCache.Get(id)

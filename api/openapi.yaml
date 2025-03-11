@@ -159,6 +159,7 @@ components:
         history:
           $ref: '#/components/schemas/History'
         val: {}
+        mut: {}
         status:
           type: object
           additionalProperties: true

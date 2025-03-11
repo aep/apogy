@@ -3,18 +3,16 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"reflect"
-	"strings"
 	"time"
 
 	openapi "github.com/aep/apogy/api/go"
 	"github.com/labstack/echo/v4"
 	tikerr "github.com/tikv/client-go/v2/error"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
-// TODO cant accept msgpack before checking if https://github.com/vmihailenco/msgpack/issues/376 is real
 func (s *server) PutDocument(c echo.Context) error {
 
 	var doc = new(openapi.Document)
@@ -40,13 +38,41 @@ func (s *server) PutDocument(c echo.Context) error {
 	default:
 	}
 
-	w2 := s.kv.Write()
-	defer w2.Close()
-
 	model, err := s.getModel(c.Request().Context(), doc.Model)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
+
+	for i := 0; ; i++ {
+		err := s.putDocument1(c, doc, model)
+		if err == nil {
+			break
+		}
+		if echoErr, ok := err.(*echo.HTTPError); ok {
+			return echoErr
+		}
+
+		if i > 10 {
+			time.Sleep(100 * time.Millisecond)
+		} else {
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		slog.Warn("putDocument1", "err", err)
+	}
+
+	return c.JSON(http.StatusOK, openapi.PutDocumentOK{
+		Path: doc.Model + "/" + doc.Id,
+	})
+}
+
+func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Model) error {
+
+	doccpy := *doc_
+	doc := &doccpy
+
+	w2 := s.kv.Write()
+	defer w2.Close()
 
 	path, err := safeDBPath(doc.Model, doc.Id)
 	if err != nil {
@@ -61,8 +87,8 @@ func (s *server) PutDocument(c echo.Context) error {
 
 	var old *openapi.Document
 
-	if doc.Version != nil {
-		// Handle versioned updates
+	if doc.Version != nil || doc.Mut != nil { // Versioned updates
+
 		bytes, err := w2.Get(c.Request().Context(), []byte(path))
 		if err != nil {
 			if !tikerr.IsErrNotFound(err) {
@@ -70,7 +96,7 @@ func (s *server) PutDocument(c echo.Context) error {
 			}
 		} else if len(bytes) > 0 {
 			old = new(openapi.Document)
-			if err := msgpack.Unmarshal(bytes, old); err != nil {
+			if err := DeserializeStore(bytes, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
@@ -83,9 +109,7 @@ func (s *server) PutDocument(c echo.Context) error {
 			}
 
 			if reflect.DeepEqual(old.Val, doc.Val) {
-				return c.JSON(http.StatusOK, openapi.PutDocumentOK{
-					Path: doc.Model + "/" + doc.Id,
-				})
+				return nil
 			}
 
 			if old.Version != nil && doc.Version != nil {
@@ -94,8 +118,9 @@ func (s *server) PutDocument(c echo.Context) error {
 				}
 			}
 		}
-	} else {
-		// Handle non-versioned updates
+
+	} else { // Non-versioned updates
+
 		r := s.kv.Read()
 		bytes, err := r.Get(c.Request().Context(), []byte(path))
 		r.Close()
@@ -105,7 +130,7 @@ func (s *server) PutDocument(c echo.Context) error {
 			}
 		} else if len(bytes) > 0 {
 			old = new(openapi.Document)
-			if err := msgpack.Unmarshal(bytes, old); err != nil {
+			if err := DeserializeStore(bytes, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
@@ -122,17 +147,39 @@ func (s *server) PutDocument(c echo.Context) error {
 	}
 
 	if doc.Version == nil {
-		version := uint64(0)
-		doc.Version = &version
+		if old == nil {
+			version := uint64(0)
+			doc.Version = &version
+		} else {
+			doc.Version = old.Version
+		}
 	}
 	*doc.Version++
+
+	var isMut = false
+	if doc.Mut != nil {
+		isMut = true
+		var val map[string]interface{}
+		if old == nil {
+			val = make(map[string]interface{})
+		} else {
+			val, _ = old.Val.(map[string]interface{})
+		}
+		mut, _ := (*doc.Mut).(map[string]interface{})
+		nval, err := Mutate(val, model, mut)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		doc.Val = nval
+		doc.Mut = nil
+	}
 
 	doc, err = s.ro.Validate(c.Request().Context(), old, doc)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	bytes, err := msgpack.Marshal(doc)
+	bytes, err := SerializeStore(doc)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("marshal error: %v", err))
 	}
@@ -145,7 +192,11 @@ func (s *server) PutDocument(c echo.Context) error {
 
 	if err := w2.Commit(c.Request().Context()); err != nil {
 		if tikerr.IsErrWriteConflict(err) {
-			return echo.NewHTTPError(http.StatusConflict, fmt.Sprintf("preempted by a different parallel write"))
+			if !isMut {
+				return echo.NewHTTPError(http.StatusConflict, fmt.Sprintf("preempted by a different parallel write"))
+			} else {
+				return err
+			}
 		} else {
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 		}
@@ -156,33 +207,10 @@ func (s *server) PutDocument(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, openapi.PutDocumentOK{
-		Path: doc.Model + "/" + doc.Id,
-	})
+	return nil
 }
 
 func (s *server) GetDocument(c echo.Context, model string, id string) error {
-
-	// fastpath
-	if strings.Contains(c.Request().Header.Get("Accept"), "application/msgpack") && model != "Reactor" {
-		path, err := safeDBPath(model, id)
-		if err != nil {
-			return err
-		}
-
-		r := s.kv.Read()
-		defer r.Close()
-
-		bytes, err := r.Get(c.Request().Context(), []byte(path))
-		if err != nil {
-			return echo.NewHTTPError(http.StatusNotFound, err.Error())
-		}
-		if bytes == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "document not found")
-		}
-
-		return c.Blob(http.StatusOK, "application/msgpack", bytes)
-	}
 
 	var doc openapi.Document
 	err := s.getDocument(c.Request().Context(), model, id, &doc)
@@ -214,7 +242,7 @@ func (s *server) getDocument(ctx context.Context, model string, id string, doc *
 		return echo.NewHTTPError(http.StatusNotFound, "document not found")
 	}
 
-	if err := msgpack.Unmarshal(bytes, doc); err != nil {
+	if err := DeserializeStore(bytes, doc); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 	}
 
@@ -243,7 +271,7 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 	}
 
 	var doc = new(openapi.Document)
-	if err := msgpack.Unmarshal(bytes, doc); err != nil {
+	if err := DeserializeStore(bytes, doc); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 	}
 

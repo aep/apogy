@@ -24,6 +24,7 @@ type Document struct {
 	History *History                `json:"history,omitempty"`
 	Id      string                  `json:"id"`
 	Model   string                  `json:"model"`
+	Mut     *interface{}            `json:"mut,omitempty"`
 	Status  *map[string]interface{} `json:"status,omitempty"`
 	Val     interface{}             `json:"val"`
 	Version *uint64                 `json:"version,omitempty"`

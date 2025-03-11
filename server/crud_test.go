@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -384,4 +385,101 @@ func TestPutDocument_Update(t *testing.T) {
 	assert.Equal(t, "updated", valMap["data"])
 	assert.NotNil(t, storedDoc.Version)
 	assert.Equal(t, uint64(2), *storedDoc.Version)
+}
+
+func TestConcurrentMutations_NeverFail(t *testing.T) {
+	e, s := setupTestServer(t)
+
+	// Create a document with a counter
+	docId := "concurrent-mutations-test"
+	initialVal := map[string]interface{}{
+		"counter": json.Number("0"),
+	}
+	initialDoc := openapi.Document{
+		Model: "Test.com.example",
+		Id:    docId,
+		Val:   initialVal,
+	}
+
+	// First PUT to create the document
+	docBytes, _ := json.Marshal(initialDoc)
+	req := httptest.NewRequest(http.MethodPost, "/v1/", bytes.NewReader(docBytes))
+	req.Header.Set(echo.HeaderContentType, "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	assert.NoError(t, s.PutDocument(c))
+
+	// Number of concurrent mutations to perform
+	concurrentCount := 50
+
+	// Launch concurrent mutations, all incrementing the counter
+	var wg sync.WaitGroup
+	for i := 0; i < concurrentCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Create mutation that increments the counter by 1
+			mutVal := interface{}(map[string]interface{}{
+				"counter": map[string]interface{}{
+					"add": json.Number("1"),
+				},
+			})
+			mutationDoc := openapi.Document{
+				Model: "Test.com.example",
+				Id:    docId,
+				Mut:   &mutVal,
+			}
+
+			mutBytes, _ := json.Marshal(mutationDoc)
+			reqMut := httptest.NewRequest(http.MethodPost, "/v1", bytes.NewReader(mutBytes))
+			reqMut.Header.Set(echo.HeaderContentType, "application/json")
+			recMut := httptest.NewRecorder()
+			cMut := e.NewContext(reqMut, recMut)
+
+			// This should never fail due to retry mechanism in PutDocument
+			err := s.PutDocument(cMut)
+			assert.NoError(t, err, "Concurrent mutation should not fail")
+		}()
+	}
+
+	wg.Wait()
+
+	// Check final value
+	getReq := httptest.NewRequest(http.MethodGet, "/documents/Test.com.example/"+docId, nil)
+	getRec := httptest.NewRecorder()
+	getContext := e.NewContext(getReq, getRec)
+
+	err := s.GetDocument(getContext, "Test.com.example", docId)
+	assert.NoError(t, err)
+
+	var finalDoc openapi.Document
+	err = json.Unmarshal(getRec.Body.Bytes(), &finalDoc)
+	assert.NoError(t, err)
+
+	// Extract the counter value
+	// Convert the Val to map[string]interface{} using JSON marshal/unmarshal
+	var valMap map[string]interface{}
+	valBytes, err := json.Marshal(finalDoc.Val)
+	assert.NoError(t, err, "Failed to marshal finalDoc.Val to JSON")
+
+	err = json.Unmarshal(valBytes, &valMap)
+	assert.NoError(t, err, "Failed to unmarshal JSON to map")
+
+	counter, ok := valMap["counter"].(json.Number)
+	if !ok {
+		// Try to convert it to a json.Number if it's a different numeric type
+		counterFloat, isFloat := valMap["counter"].(float64)
+		if isFloat {
+			counter = json.Number(fmt.Sprintf("%v", counterFloat))
+		} else {
+			t.Fatalf("Counter value is not a number: %T", valMap["counter"])
+		}
+	}
+
+	// Check that all increments were applied
+	counterInt, err := counter.Int64()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(concurrentCount), counterInt, "All mutations should have been applied")
 }
