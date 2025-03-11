@@ -81,8 +81,12 @@ func TracingMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		// Extract existing context if present
 		ctx := c.Request().Context()
 
-		// Create a span for this request
+		// Extract trace context from request headers if present
 		req := c.Request()
+		propagator := otel.GetTextMapPropagator()
+		ctx = propagator.Extract(ctx, propagation.HeaderCarrier(req.Header))
+
+		// Create a span for this request
 		spanName := req.Method + " " + c.Path()
 
 		ctx, span := tracer.Start(ctx, spanName,

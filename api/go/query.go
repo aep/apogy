@@ -33,7 +33,7 @@ func queryOne[Document any](client ClientInterface, ctx context.Context, q strin
 	}, func(ctx context.Context, req *http.Request) error {
 		req.Header.Set("Accept", "application/jsonl")
 		return nil
-	})
+	}, addTracingContext())
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func query[Document any](client ClientInterface, ctx context.Context, q string, 
 		}, func(ctx context.Context, req *http.Request) error {
 			req.Header.Set("Accept", "application/jsonl")
 			return nil
-		})
+		}, addTracingContext())
 		if err != nil {
 			yield(nil, err)
 			return

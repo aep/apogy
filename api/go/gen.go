@@ -24,7 +24,7 @@ type Document struct {
 	History *History                `json:"history,omitempty"`
 	Id      string                  `json:"id"`
 	Model   string                  `json:"model"`
-	Mut     *interface{}            `json:"mut,omitempty"`
+	Mut     *Mutations              `json:"mut,omitempty"`
 	Status  *map[string]interface{} `json:"status,omitempty"`
 	Val     interface{}             `json:"val"`
 	Version *uint64                 `json:"version,omitempty"`
@@ -49,6 +49,20 @@ type History struct {
 	Created *time.Time `json:"created,omitempty"`
 	Updated *time.Time `json:"updated,omitempty"`
 }
+
+// Mutation defines model for Mutation.
+type Mutation struct {
+	Add *interface{} `json:"add,omitempty"`
+	Div *interface{} `json:"div,omitempty"`
+	Max *interface{} `json:"max,omitempty"`
+	Min *interface{} `json:"min,omitempty"`
+	Mul *interface{} `json:"mul,omitempty"`
+	Set *interface{} `json:"set,omitempty"`
+	Sub *interface{} `json:"sub,omitempty"`
+}
+
+// Mutations defines model for Mutations.
+type Mutations map[string]Mutation
 
 // Query defines model for Query.
 type Query struct {
@@ -593,6 +607,7 @@ type PutDocumentResponse struct {
 	JSON200      *Document
 	JSON400      *ErrorResponse
 	JSON409      *ErrorResponse
+	JSON422      *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -804,6 +819,13 @@ func ParsePutDocumentResponse(rsp *http.Response) (*PutDocumentResponse, error) 
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	}
 
@@ -1094,6 +1116,15 @@ type PutDocument409JSONResponse ErrorResponse
 func (response PutDocument409JSONResponse) VisitPutDocumentResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PutDocument422JSONResponse ErrorResponse
+
+func (response PutDocument422JSONResponse) VisitPutDocumentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
 
 	return json.NewEncoder(w).Encode(response)
 }

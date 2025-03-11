@@ -69,6 +69,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '400':
           description: Validation Error
           content:
@@ -159,10 +165,28 @@ components:
         history:
           $ref: '#/components/schemas/History'
         val: {}
-        mut: {}
+        mut:
+          $ref: '#/components/schemas/Mutations'
         status:
           type: object
           additionalProperties: true
+
+    Mutation:
+      type: object
+      properties:
+        add: {}
+        sub: {}
+        mul: {}
+        div: {}
+        min: {}
+        max: {}
+        set: {}
+
+    Mutations:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/Mutation'
+
 
     Filter:
       type: object

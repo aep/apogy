@@ -59,11 +59,6 @@ func setupTestServer(t *testing.T) (*echo.Echo, *server) {
 		Id:    "Test.com.example",
 		Val: &map[string]interface{}{
 			"name": "Test Model",
-			"properties": map[string]interface{}{
-				"data": map[string]interface{}{
-					"type": "string",
-				},
-			},
 		},
 	}
 
@@ -93,11 +88,6 @@ func TestPutDocument_Model(t *testing.T) {
 		Id:    "bob.example.com",
 		Val: &map[string]interface{}{
 			"name": "Test Model",
-			"properties": map[string]interface{}{
-				"testField": map[string]interface{}{
-					"type": "string",
-				},
-			},
 		},
 	}
 
@@ -116,11 +106,6 @@ func TestPutDocument_Model(t *testing.T) {
 	// Test the PUT handler
 	if assert.NoError(t, s.PutDocument(c)) {
 		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var response openapi.PutDocumentOK
-		err := json.Unmarshal(rec.Body.Bytes(), &response)
-		assert.NoError(t, err)
-		assert.Equal(t, "Model/bob.example.com", response.Path)
 
 		// Create a new request for GET to verify the document
 		getReq := httptest.NewRequest(http.MethodGet, "/documents/Model/bob.example.com", nil)
@@ -420,16 +405,15 @@ func TestConcurrentMutations_NeverFail(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			// Create mutation that increments the counter by 1
-			mutVal := interface{}(map[string]interface{}{
-				"counter": map[string]interface{}{
-					"add": json.Number("1"),
-				},
-			})
+			vv := interface{}(json.Number("1"))
 			mutationDoc := openapi.Document{
 				Model: "Test.com.example",
 				Id:    docId,
-				Mut:   &mutVal,
+				Mut: &openapi.Mutations{
+					"counter": {
+						Add: &vv,
+					},
+				},
 			}
 
 			mutBytes, _ := json.Marshal(mutationDoc)

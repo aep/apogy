@@ -16,8 +16,9 @@ var rootCmd = &cobra.Command{
 }
 
 var mkmtlsCmd = &cobra.Command{
-	Use:  "mkmtls [dns_name1] [dns_name2]",
-	Args: cobra.MinimumNArgs(1),
+	Use:   "mkmtls [dns_name1] [dns_name2]",
+	Short: "make mtls certs",
+	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		mkmtls.Main(args)
 	},

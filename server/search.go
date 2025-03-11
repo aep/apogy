@@ -14,6 +14,8 @@ import (
 	"github.com/aep/apogy/aql"
 	"github.com/aep/apogy/kv"
 	"github.com/labstack/echo/v4"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const MAX_RESULTS = 200
@@ -90,20 +92,26 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 
 func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string) (findResult, error) {
 
-	if filter == nil || filter.Key == "id" {
-		if r, ok := r.(*kv.TikvRead); ok {
-			r.SetKeyOnly(true)
-		}
-	}
+	ctx, span := tracer.Start(ctx, "find", trace.WithAttributes(
+		attribute.String("model", model),
+		attribute.String("subid", id),
+		attribute.String("filter", fmt.Sprintf("%v", filter)),
+		attribute.Int("limit", limit),
+	))
+	defer span.End()
 
-	// if the filter is by exact id, just return the object directly
+	// if the filter is by exact id, use a get
+	// dont remove this, its actually nessesary if we're in a subfiltr.
+	// we should optimize this some day to just filter in memory instead of doing a tikv roundtrip
 	if filter != nil && filter.Key == "id" && filter.Equal != nil {
 		if id, ok := (*filter.Equal).(string); ok {
-
 			var doc openapi.Document
-			doc.Id = id
-			doc.Model = model
-			return findResult{documents: []openapi.Document{doc}}, nil
+			err := s.getDocument(ctx, model, id, &doc)
+			if err == nil {
+				return findResult{documents: []openapi.Document{doc}}, nil
+			} else {
+				return findResult{documents: []openapi.Document{}}, nil
+			}
 		}
 	}
 
@@ -166,18 +174,28 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 				continue
 			}
 			id = string(idx[len(idx)-2])
+
+			if !seen[id] {
+				seen[id] = true
+				var doc openapi.Document
+				if err := DeserializeStore(kv.V, &doc); err != nil {
+					return findResult{}, echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
+				}
+				documents = append(documents, doc)
+				lastKey = kv.K
+			}
 		} else {
 			vdx := bytes.Split(kv.V, []byte{0xff})
 			id = string(vdx[0])
-		}
 
-		if !seen[id] {
-			seen[id] = true
-			var doc openapi.Document
-			doc.Model = model
-			doc.Id = id
-			documents = append(documents, doc)
-			lastKey = kv.K
+			if !seen[id] {
+				seen[id] = true
+				var doc openapi.Document
+				doc.Model = model
+				doc.Id = id
+				documents = append(documents, doc)
+				lastKey = kv.K
+			}
 		}
 
 		if len(documents) >= limit {
@@ -192,6 +210,10 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 		cursor := base64.StdEncoding.EncodeToString(nextKey)
 		nextCursor = &cursor
 	}
+
+	span.SetAttributes(
+		attribute.Int("result", len(documents)),
+	)
 
 	return findResult{documents: documents, cursor: nextCursor}, nil
 }
@@ -240,6 +262,10 @@ func (s *server) QueryDocuments(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 	}
+
+	span.SetAttributes(
+		attribute.String("query", qa.String()),
+	)
 
 	srq := *qa.ToSearchRequest()
 	srq.Cursor = req.Cursor
@@ -375,6 +401,7 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 
 		for i, doc := range result.documents {
 			allMatch := true
+
 			for _, filter := range (*req.Filters)[1:] {
 
 				subResult, err := s.find(ctx, r, req.Model, doc.Id, &filter, 1, nil)

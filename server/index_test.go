@@ -24,10 +24,10 @@ func setupIndexTestData(t *testing.T, e *echo.Echo, s *server) *Model {
 		Val: &map[string]interface{}{
 			"name": "Index Test Model",
 			"schema": map[string]interface{}{
-				"name":  "string",
-				"code":  "string",
-				"price": "uint64",
-				"tags":  []string{"string"},
+				"name?":  "string",
+				"code?":  "string",
+				"price?": "uint64",
+				"tags?":  []string{"string"},
 			},
 			"index": map[string]interface{}{
 				"code": "unique",

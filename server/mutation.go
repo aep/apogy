@@ -3,59 +3,110 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	openapi "github.com/aep/apogy/api/go"
 	"strconv"
 )
 
-func Mutate(val map[string]interface{}, model *Model, mut map[string]interface{}) (interface{}, error) {
+func Mutate(val map[string]interface{}, model *Model, mut *openapi.Mutations) (interface{}, error) {
 
-	for k, v := range mut {
-
-		mutExprMap, ok := v.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("invalid mutation expression for '%s': %T", k, v)
-		}
-
+	for k, mutationObj := range *mut {
 		var op rune
 		var newVal json.Number
+		var opFound bool = false
 
-		for k2, v2 := range mutExprMap {
-
-			if op != rune(0) {
+		if mutationObj.Set != nil {
+			if opFound {
 				return nil, fmt.Errorf("invalid mutation expression for '%s': only one op allowed", k)
 			}
+			op = 's'
+			val[k] = *mutationObj.Set
+			continue
+		}
 
-			switch k2 {
-			case "add", "+":
-				op = '+'
-			case "sub", "subtract", "-":
-				op = '-'
-			case "mul", "multiply", "*":
-				op = '*'
-			case "div", "divide", "/":
-				op = '/'
-			case "min", "minimum":
-				op = 'm'
-			case "max", "maximum":
-				op = 'M'
-			case "set":
-				op = 's'
-			default:
-				return nil, fmt.Errorf("invalid mutation expression for '%s': %s", k, k2)
+		if mutationObj.Add != nil {
+			if opFound {
+				return nil, fmt.Errorf("invalid mutation expression for '%s': only one op allowed", k)
 			}
-
-			if op == 's' {
-				val[k] = v2
-				continue
+			op = '+'
+			if v, ok := processValue(*mutationObj.Add); ok {
+				newVal = v
+				opFound = true
 			} else {
-				vv, ok := v2.(json.Number)
-				if !ok {
-					return nil, fmt.Errorf("invalid mutation value for '%s': %T", k, v2)
-				}
-				newVal = vv
+				return nil, fmt.Errorf("invalid mutation value for '%s'", k)
 			}
 		}
 
-		if op == rune(0) || op == 's' {
+		// Handle Sub operation
+		if mutationObj.Sub != nil {
+			if opFound {
+				return nil, fmt.Errorf("invalid mutation expression for '%s': only one op allowed", k)
+			}
+			op = '-'
+			if v, ok := processValue(*mutationObj.Sub); ok {
+				newVal = v
+				opFound = true
+			} else {
+				return nil, fmt.Errorf("invalid mutation value for '%s'", k)
+			}
+		}
+
+		// Handle Mul operation
+		if mutationObj.Mul != nil {
+			if opFound {
+				return nil, fmt.Errorf("invalid mutation expression for '%s': only one op allowed", k)
+			}
+			op = '*'
+			if v, ok := processValue(*mutationObj.Mul); ok {
+				newVal = v
+				opFound = true
+			} else {
+				return nil, fmt.Errorf("invalid mutation value for '%s'", k)
+			}
+		}
+
+		// Handle Div operation
+		if mutationObj.Div != nil {
+			if opFound {
+				return nil, fmt.Errorf("invalid mutation expression for '%s': only one op allowed", k)
+			}
+			op = '/'
+			if v, ok := processValue(*mutationObj.Div); ok {
+				newVal = v
+				opFound = true
+			} else {
+				return nil, fmt.Errorf("invalid mutation value for '%s'", k)
+			}
+		}
+
+		// Handle Min operation
+		if mutationObj.Min != nil {
+			if opFound {
+				return nil, fmt.Errorf("invalid mutation expression for '%s': only one op allowed", k)
+			}
+			op = 'm'
+			if v, ok := processValue(*mutationObj.Min); ok {
+				newVal = v
+				opFound = true
+			} else {
+				return nil, fmt.Errorf("invalid mutation value for '%s'", k)
+			}
+		}
+
+		// Handle Max operation
+		if mutationObj.Max != nil {
+			if opFound {
+				return nil, fmt.Errorf("invalid mutation expression for '%s': only one op allowed", k)
+			}
+			op = 'M'
+			if v, ok := processValue(*mutationObj.Max); ok {
+				newVal = v
+				opFound = true
+			} else {
+				return nil, fmt.Errorf("invalid mutation value for '%s'", k)
+			}
+		}
+
+		if !opFound {
 			continue
 		}
 
@@ -182,4 +233,33 @@ func Mutate(val map[string]interface{}, model *Model, mut map[string]interface{}
 	}
 
 	return val, nil
+}
+
+// processValue tries to convert various types to json.Number
+func processValue(v interface{}) (json.Number, bool) {
+	switch value := v.(type) {
+	case json.Number:
+		return value, true
+	case string:
+		return json.Number(value), true
+	case float64:
+		return json.Number(strconv.FormatFloat(value, 'f', -1, 64)), true
+	case int64:
+		return json.Number(strconv.FormatInt(value, 10)), true
+	case int:
+		return json.Number(strconv.Itoa(value)), true
+	case float32:
+		return json.Number(strconv.FormatFloat(float64(value), 'f', -1, 32)), true
+	case int32:
+		return json.Number(strconv.FormatInt(int64(value), 10)), true
+	default:
+		// Try to convert from map or struct to json.Number
+		if numValue, err := json.Marshal(v); err == nil {
+			var num json.Number
+			if json.Unmarshal(numValue, &num) == nil {
+				return num, true
+			}
+		}
+		return json.Number(""), false
+	}
 }

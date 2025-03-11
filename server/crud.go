@@ -192,8 +192,7 @@ func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi
 		} else {
 			val, _ = old.Val.(map[string]interface{})
 		}
-		mut, _ := (*doc.Mut).(map[string]interface{})
-		nval, err := Mutate(val, model, mut)
+		nval, err := Mutate(val, model, doc.Mut)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
@@ -203,7 +202,7 @@ func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi
 
 	doc, err = s.ro.Validate(ctx, old, doc)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
 	}
 
 	bytes, err := SerializeStore(doc)
@@ -231,7 +230,7 @@ func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi
 
 	err = s.ro.Reconcile(ctx, old, doc)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 
 	return nil

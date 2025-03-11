@@ -68,6 +68,13 @@ var (
 		Run:     query,
 	}
 
+	mutCmd = &cobra.Command{
+		Use:   "mut [q]",
+		Short: "AQL Mutation",
+		Args:  cobra.MinimumNArgs(1),
+		Run:   mutate,
+	}
+
 	buildCmd = &cobra.Command{
 		Use:   "build",
 		Short: "build api",
@@ -88,6 +95,7 @@ func RegisterCommands(root *cobra.Command) {
 	root.AddCommand(searchCmd)
 	root.AddCommand(qCmd)
 	root.AddCommand(rmCmd)
+	root.AddCommand(mutCmd)
 
 	buildCmd.Flags().StringVarP(&file, "file", "f", "", "Path to JSON/YAML file")
 	buildCmd.MarkFlagRequired("file")
@@ -209,6 +217,9 @@ func put(cmd *cobra.Command, args []string) {
 			if resp.JSON400 != nil {
 				fmt.Fprintf(os.Stderr, "%s %s rejected: %s\n", obj.Model, obj.Id, *resp.JSON400.Message)
 				os.Exit(2)
+			} else if resp.JSON422 != nil {
+				fmt.Fprintf(os.Stderr, "%s %s rejected: %s\n", obj.Model, obj.Id, *resp.JSON422.Message)
+				os.Exit(9)
 			} else if resp.JSON409 != nil {
 				fmt.Fprintf(os.Stderr, "%s %s rejected: %s\n", obj.Model, obj.Id, *resp.JSON409.Message)
 				os.Exit(9)
@@ -340,6 +351,32 @@ func search(cmd *cobra.Command, args []string) {
 }
 
 func query(cmd *cobra.Command, args []string) {
+	client, err := getClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var argss []interface{}
+	for _, arg := range args[1:] {
+		argss = append(argss, interface{}(arg))
+	}
+
+	it := client.Query(context.Background(), args[0], argss...)
+
+	for doc, err := range it {
+		if err != nil {
+			log.Fatalf("query error: %s", err)
+		}
+		fmt.Println("---")
+		enc, err := yaml.Marshal(doc)
+		if err != nil {
+			log.Fatalf("Failed to encode as YAML: %v", err)
+		}
+		os.Stdout.Write(enc)
+	}
+}
+
+func mutate(cmd *cobra.Command, args []string) {
 	client, err := getClient()
 	if err != nil {
 		log.Fatal(err)

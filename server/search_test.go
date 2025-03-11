@@ -269,4 +269,89 @@ func TestSearchDocuments_Cursor(t *testing.T) {
 			assert.NotEqual(t, response.Documents, cursorResponse.Documents)
 		}
 	}
+
+}
+
+func TestSearchDocuments_MultipleFiltersIdFirst(t *testing.T) {
+	e, s := setupTestServer(t)
+	setupSearchTestData(t, e, s)
+
+	var idInterface interface{} = "doc1"
+	nameValue := "Document 1"
+	var nameInterface interface{} = nameValue
+
+	filters := []openapi.Filter{
+		{
+			Key:   "id",
+			Equal: &idInterface,
+		},
+		{
+			Key:   "val.name",
+			Equal: &nameInterface,
+		},
+	}
+
+	searchReq := openapi.SearchRequest{
+		Model:   "com.example.SearchTest",
+		Filters: &filters,
+	}
+
+	reqBytes, _ := json.Marshal(searchReq)
+	req := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(reqBytes))
+	req.Header.Set(echo.HeaderContentType, "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if assert.NoError(t, s.SearchDocuments(c)) {
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var response openapi.SearchResponse
+		err := json.Unmarshal(rec.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.NotNil(t, response.Documents)
+		assert.Len(t, response.Documents, 1)
+		assert.Equal(t, "doc1", response.Documents[0].Id)
+	}
+}
+
+func TestSearchDocuments_MultipleFiltersIdSecond(t *testing.T) {
+	e, s := setupTestServer(t)
+	setupSearchTestData(t, e, s)
+
+	var idInterface interface{} = "doc1"
+	nameValue := "Document 1"
+	var nameInterface interface{} = nameValue
+
+	filters := []openapi.Filter{
+		{
+			Key:   "val.name",
+			Equal: &nameInterface,
+		},
+		{
+			Key:   "id",
+			Equal: &idInterface,
+		},
+	}
+
+	searchReq := openapi.SearchRequest{
+		Model:   "com.example.SearchTest",
+		Filters: &filters,
+	}
+
+	reqBytes, _ := json.Marshal(searchReq)
+	req := httptest.NewRequest(http.MethodPost, "/search", bytes.NewReader(reqBytes))
+	req.Header.Set(echo.HeaderContentType, "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if assert.NoError(t, s.SearchDocuments(c)) {
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var response openapi.SearchResponse
+		err := json.Unmarshal(rec.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.NotNil(t, response.Documents)
+		assert.Len(t, response.Documents, 1)
+		assert.Equal(t, "doc1", response.Documents[0].Id)
+	}
 }
