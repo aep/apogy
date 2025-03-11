@@ -80,7 +80,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PutDocumentOK'
+                $ref: '#/components/schemas/Document'
 
   /v1/search:
     post:
@@ -163,14 +163,6 @@ components:
         status:
           type: object
           additionalProperties: true
-
-    PutDocumentOK:
-      type: object
-      required:
-        - path
-      properties:
-        path:
-          type: string
 
     Filter:
       type: object

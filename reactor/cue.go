@@ -7,9 +7,12 @@ import (
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
+	cuejson "cuelang.org/go/encoding/json"
+	"encoding/json"
 	openapi "github.com/aep/apogy/api/go"
 	ycue "github.com/aep/yema/cue"
 	yparser "github.com/aep/yema/parser"
+	"gopkg.in/yaml.v3"
 )
 
 type cueReactor struct {
@@ -50,22 +53,35 @@ func (cr *cueReactor) Ready(model *openapi.Document, args interface{}) (interfac
 		return nil, err
 	}
 
-	src, _ := args.(string)
-	if src != "" {
-
-		schema2 := ctx.CompileString(src)
-		if schema.Err() != nil {
-			return nil, schema.Err()
+	var src string
+	if srcAsMap, ok := val["cue"].(map[string]interface{}); ok {
+		srcB, _ := yaml.Marshal(srcAsMap)
+		src = string(srcB)
+	} else if srcAsList, ok := val["cue"].([]map[string]interface{}); ok {
+		for _, li := range srcAsList {
+			srcB, _ := yaml.Marshal(li)
+			src += string(srcB)
 		}
-
-		schema = schema.Unify(schema2)
-		if schema.Err() != nil {
-			return nil, schema.Err()
+	} else if srcAsList, ok := val["cue"].([]interface{}); ok {
+		for _, li := range srcAsList {
+			srcB, _ := yaml.Marshal(li)
+			src += string(srcB)
 		}
-
+	} else {
+		return nil, fmt.Errorf("couldnt parse cue")
 	}
 
-	return &cueReady{cctx: ctx, schema: schema}, nil
+	schema2 := ctx.CompileString(src, cue.InferBuiltins(true))
+	if schema.Err() != nil {
+		return nil, schema.Err()
+	}
+
+	schema = schema.Unify(schema2)
+	if schema.Err() != nil {
+		return nil, schema.Err()
+	}
+
+	return &cueReady{cctx: ctx, schema: schema2}, nil
 }
 
 func (jsr *cueReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
@@ -80,25 +96,46 @@ func (jsr *cueReactor) Validate(ctx context.Context, old *openapi.Document, nuw 
 
 	cueReady := args.(*cueReady)
 
-	y := cueReady.cctx.Encode(nuw.Val)
-	if y.Err() != nil {
-		return nil, fmt.Errorf("encode to cue failed: %w", y.Err())
+	js, err := json.Marshal(nuw.Val)
+	if err != nil {
+		return nil, err
 	}
 
-	unified := cueReady.schema.Unify(y)
-	if unified.Err() != nil {
-		return nil, fmt.Errorf("validation failed: %w", unified.Err())
-	}
-
-	err := unified.Validate(cue.Final(), cue.Concrete(true))
+	err = cuejson.Validate(js, cueReady.schema)
 	if err != nil {
 		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
-	err = unified.Decode(nuw)
-	if err != nil {
-		return nil, fmt.Errorf("decode from cue failed: %w", err)
-	}
+	// FIXME I think this leaks because the ctx is never released
+	/*
+		yj, err := cuejson.Extract("doc", js)
+		if err != nil {
+			return nil, fmt.Errorf("encode to cue failed: %w", err)
+		}
+
+		y := cueReady.cctx.BuildExpr(yj)
+		if y.Err() != nil {
+			return nil, fmt.Errorf("build: %w", y.Err())
+		}
+
+		unified := cueReady.schema.Unify(y)
+		if unified.Err() != nil {
+			return nil, fmt.Errorf("unify: %w", unified.Err())
+		}
+
+		fmt.Println(unified)
+
+		err = unified.Validate(cue.Final(), cue.Concrete(true))
+		if err != nil {
+			return nil, fmt.Errorf("validation: %w", err)
+		}
+
+		err = unified.Decode(nuw)
+		if err != nil {
+			return nil, fmt.Errorf("decode: %w", err)
+		}
+
+	*/
 
 	return nuw, nil
 }

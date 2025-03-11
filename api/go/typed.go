@@ -70,35 +70,76 @@ func (c *TypedClient[Doc]) Delete(ctx context.Context, id string, reqEditors ...
 	return nil
 }
 
-func (c *TypedClient[Doc]) Put(ctx context.Context, body *Doc, reqEditors ...RequestEditorFn) error {
+func (c *TypedClient[Doc]) Put(ctx context.Context, body *Doc, reqEditors ...RequestEditorFn) (*Doc, error) {
 
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
 
 	req, err := NewPutDocumentRequestWithBody(c.Server, "application/json", bodyReader)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req = req.WithContext(ctx)
 	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return err
+		return nil, err
 	}
 
 	rsp, err := c.Client.Client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	defer rsp.Body.Close()
 
-	if rsp.StatusCode == 200 {
-		return nil
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest = new(Doc)
+		if err := json.NewDecoder(rsp.Body).Decode(dest); err != nil {
+			return nil, err
+		}
+		return dest, nil
 	}
-	return parseError(rsp)
+	return nil, parseError(rsp)
+}
+
+func (c *TypedClient[Doc]) Mut(ctx context.Context, body *Doc, reqEditors ...RequestEditorFn) (*Doc, error) {
+
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+
+	req, err := NewPutDocumentRequestWithBody(c.Server, "application/json", bodyReader)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+
+	rsp, err := c.Client.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rsp.Body.Close()
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest = new(Doc)
+		if err := json.NewDecoder(rsp.Body).Decode(dest); err != nil {
+			return nil, err
+		}
+		return dest, nil
+	}
+	return nil, parseError(rsp)
 }
 
 func (c *TypedClient[Doc]) Query(ctx context.Context, args ...interface{}) iter.Seq2[*Doc, error] {

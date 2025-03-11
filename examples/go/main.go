@@ -20,7 +20,7 @@ func main() {
 	fmt.Println("changing book titled", doc.Val.Name)
 
 	doc.Val.Author = "me"
-	err = client.Book.Put(context.Background(), doc)
+	_, err = client.Book.Put(context.Background(), doc)
 	if err != nil {
 		panic(err)
 	}

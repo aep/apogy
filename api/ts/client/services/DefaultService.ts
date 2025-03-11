@@ -3,7 +3,6 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { Document } from '../models/Document';
-import type { PutDocumentOK } from '../models/PutDocumentOK';
 import type { Query } from '../models/Query';
 import type { SearchRequest } from '../models/SearchRequest';
 import type { SearchResponse } from '../models/SearchResponse';
@@ -58,12 +57,12 @@ export class DefaultService {
     /**
      * Create or update a document
      * @param requestBody
-     * @returns PutDocumentOK Successfully stored document
+     * @returns Document Successfully stored document
      * @throws ApiError
      */
     public static putDocument(
         requestBody: Document,
-    ): CancelablePromise<PutDocumentOK> {
+    ): CancelablePromise<Document> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/v1',

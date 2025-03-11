@@ -28,8 +28,6 @@ val:
     name: string
     author: string
     isbn?: string
-  reactors:
-    - schema
 ---
 model:  com.example.Book
 id:     dune
@@ -64,11 +62,9 @@ val:
     name: string
     author: string
     isbn?: string
-  reactors:
-    - cue:
-        import "strings"
-        name: strings.MinRunes(2)
-        validatedByCue: "yes"
+  cue:
+    name: strings.MinRunes(2)
+    validatedByCue: true
 ```
 
 

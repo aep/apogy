@@ -50,6 +50,15 @@ func (ro *Reactor) reactorReadyArgsFromModel(doc *openapi.Document) ([]reactorRe
 	var ret []reactorReadyArgs
 
 	ii, _ := val["reactors"].([]interface{})
+
+	if val["cue"] != nil {
+		ii = append([]interface{}{"cue"}, ii...)
+	}
+
+	if val["schema"] != nil {
+		ii = append([]interface{}{"schema"}, ii...)
+	}
+
 	for _, i := range ii {
 
 		switch i := i.(type) {

@@ -11,8 +11,6 @@ val:
     isbn?: string
   index:
     isbn: unique
-  reactors:
-    - schema
 ---
 model:  com.example.Book
 id: a410d488-3d33-4e18-af26-6f818968b015

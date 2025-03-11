@@ -9,10 +9,8 @@ val:
       - author: string
         text: string
     isbn?: string
-  reactors:
-    - cue: |
-        import "strings"
-        name: strings.MinRunes(10)
+  cue:
+    name: strings.MinRunes(4)
 ---
 model:  com.example.Book
 id: a410d488-3d33-4e18-af26-6f818968b015

@@ -50,11 +50,6 @@ type History struct {
 	Updated *time.Time `json:"updated,omitempty"`
 }
 
-// PutDocumentOK defines model for PutDocumentOK.
-type PutDocumentOK struct {
-	Path string `json:"path"`
-}
-
 // Query defines model for Query.
 type Query struct {
 	Cursor *string        `json:"cursor,omitempty"`
@@ -595,7 +590,7 @@ type ClientWithResponsesInterface interface {
 type PutDocumentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *PutDocumentOK
+	JSON200      *Document
 	JSON400      *ErrorResponse
 	JSON409      *ErrorResponse
 }
@@ -790,7 +785,7 @@ func ParsePutDocumentResponse(rsp *http.Response) (*PutDocumentResponse, error) 
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest PutDocumentOK
+		var dest Document
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1076,7 +1071,7 @@ type PutDocumentResponseObject interface {
 	VisitPutDocumentResponse(w http.ResponseWriter) error
 }
 
-type PutDocument200JSONResponse PutDocumentOK
+type PutDocument200JSONResponse Document
 
 func (response PutDocument200JSONResponse) VisitPutDocumentResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")

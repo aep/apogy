@@ -1,0 +1,41 @@
+---
+model:   Model
+id:      com.example.Road
+val:
+  schema:
+    cars: uint64
+    max: uint64
+  cue:
+    max: uint64
+    cars: uint64 & < max
+---
+model: com.example.Road
+id: country
+val:
+  cars: 1
+  max: 12
+---
+model:  com.example.Road
+id:     country
+mut:
+  cars:
+    add: 1
+---
+model:  com.example.Road
+id:     country
+mut:
+  cars:
+    add: 1
+---
+model:  com.example.Road
+id:     country
+mut:
+  cars:
+    add: 1
+---
+model:  com.example.Road
+id:     country
+mut:
+  cars:
+    mul: 10
+---

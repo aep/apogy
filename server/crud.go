@@ -90,9 +90,7 @@ func (s *server) PutDocument(c echo.Context) error {
 
 	span.SetAttributes(attribute.Int("attempts", attempts))
 
-	return c.JSON(http.StatusOK, openapi.PutDocumentOK{
-		Path: doc.Model + "/" + doc.Id,
-	})
+	return c.JSON(http.StatusOK, doc)
 }
 
 func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi.Document, model *Model) error {

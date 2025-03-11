@@ -11,7 +11,6 @@ export type { Document } from './models/Document';
 export type { ErrorResponse } from './models/ErrorResponse';
 export type { Filter } from './models/Filter';
 export type { History } from './models/History';
-export type { PutDocumentOK } from './models/PutDocumentOK';
 export type { Query } from './models/Query';
 export type { ReactorActivation } from './models/ReactorActivation';
 export type { ReactorDone } from './models/ReactorDone';
