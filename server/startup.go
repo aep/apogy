@@ -27,6 +27,10 @@ func (s *server) startup() {
 		if err != nil {
 			slog.Error("startup error", "err", err)
 		}
+		err = s.ro.Reconcile(ctx, nil, &doc)
+		if err != nil {
+			slog.Error("startup error", "err", err)
+		}
 	}
 
 	docs, err = s.find(ctx, dbr, "Model", "", nil, 100000, nil)
@@ -41,6 +45,10 @@ func (s *server) startup() {
 
 	for _, doc := range docs.documents {
 		_, err := s.ro.Validate(ctx, nil, &doc)
+		if err != nil {
+			slog.Error("startup error", "err", err)
+		}
+		err = s.ro.Reconcile(ctx, nil, &doc)
 		if err != nil {
 			slog.Error("startup error", "err", err)
 		}

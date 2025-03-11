@@ -38,9 +38,9 @@ var (
 	}
 
 	editCmd = &cobra.Command{
-		Use:   "edit [model/id]",
+		Use:   "edit [model] [id]",
 		Short: "Edit a document",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(2),
 		Run:   edit,
 	}
 
@@ -403,11 +403,7 @@ func mutate(cmd *cobra.Command, args []string) {
 }
 
 func edit(cmd *cobra.Command, args []string) {
-	parts := strings.Split(args[0], "/")
-	if len(parts) != 2 {
-		log.Fatal("Invalid id format. Expected model/id")
-	}
-	model, id := parts[0], parts[1]
+	model, id := args[0], args[1]
 
 	client, err := getClient()
 	if err != nil {

@@ -87,7 +87,7 @@ func (s *server) writeIndexI(ctx context.Context, w kv.Write, model *Model, obje
 
 		unique := model.Index[path] == "unique"
 
-		if len(v) > 128 {
+		if len(v) > 1024 {
 			if unique {
 				return fmt.Errorf("value of %s too large for unique index", path)
 			}

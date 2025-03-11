@@ -92,10 +92,11 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 
 func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string) (findResult, error) {
 
+	fasj, _ := json.Marshal(filter)
 	ctx, span := tracer.Start(ctx, "find", trace.WithAttributes(
 		attribute.String("model", model),
 		attribute.String("subid", id),
-		attribute.String("filter", fmt.Sprintf("%v", filter)),
+		attribute.String("filter", string(fasj)),
 		attribute.Int("limit", limit),
 	))
 	defer span.End()
@@ -307,6 +308,13 @@ func (s *server) QueryDocuments(c echo.Context) error {
 			}
 
 			srq.Cursor = rsp.Cursor
+
+			if srq.Limit != nil {
+				if *srq.Limit <= len(rsp.Documents) {
+					return nil
+				}
+				*srq.Limit = *srq.Limit - len(rsp.Documents)
+			}
 		}
 
 	} else {
@@ -365,6 +373,9 @@ func (s *server) resolveFullDocs(ctx context.Context, r kv.Read, fr []openapi.Do
 }
 
 func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest) (*openapi.SearchResponse, error) {
+
+	ctx, span := tracer.Start(ctx, "query")
+	defer span.End()
 
 	if req.Model == "" {
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "Model is required")
