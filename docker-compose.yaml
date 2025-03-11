@@ -30,3 +30,15 @@ services:
     network_mode: host
     command: "--js"
     restart: on-failure
+  # Jaeger for OpenTelemetry tracing
+  jaeger:
+    container_name: jaeger
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "4317:4317"   # OTLP gRPC (OpenTelemetry protocol)
+      - "4318:4318"   # OTLP HTTP
+      - "16686:16686" # Jaeger UI
+      - "14250:14250" # Model used for tracing
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: on-failure

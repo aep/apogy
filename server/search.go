@@ -198,6 +198,9 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 
 func (s *server) SearchDocuments(c echo.Context) error {
 
+	ctx, span := tracer.Start(c.Request().Context(), "Search")
+	defer span.End()
+
 	var req openapi.SearchRequest
 
 	if err := c.Bind(&req); err != nil {
@@ -207,7 +210,7 @@ func (s *server) SearchDocuments(c echo.Context) error {
 	r := s.kv.Read()
 	defer r.Close()
 
-	rsp, err := s.query(c.Request().Context(), r, req)
+	rsp, err := s.query(ctx, r, req)
 	if err != nil {
 		return err
 	}
@@ -215,6 +218,9 @@ func (s *server) SearchDocuments(c echo.Context) error {
 }
 
 func (s *server) QueryDocuments(c echo.Context) error {
+
+	ctx, span := tracer.Start(c.Request().Context(), "Query")
+	defer span.End()
 
 	var req openapi.Query
 	var qa *aql.Query
@@ -247,10 +253,10 @@ func (s *server) QueryDocuments(c echo.Context) error {
 		c.Response().Header().Set("Content-Type", "application/jsonl")
 
 		for {
-			rsp, err := s.query(c.Request().Context(), r, srq)
+			rsp, err := s.query(ctx, r, srq)
 			if err != nil {
 				select {
-				case <-c.Request().Context().Done():
+				case <-ctx.Done():
 					return nil
 				default:
 					errstr := err.Error()
@@ -261,7 +267,7 @@ func (s *server) QueryDocuments(c echo.Context) error {
 			err = json.NewEncoder(c.Response()).Encode(rsp)
 			if err != nil {
 				select {
-				case <-c.Request().Context().Done():
+				case <-ctx.Done():
 					return nil
 				default:
 					errstr := err.Error()
@@ -279,7 +285,7 @@ func (s *server) QueryDocuments(c echo.Context) error {
 
 	} else {
 
-		rsp, err := s.query(c.Request().Context(), r, srq)
+		rsp, err := s.query(ctx, r, srq)
 		if err != nil {
 			return err
 		}

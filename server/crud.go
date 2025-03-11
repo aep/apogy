@@ -11,43 +11,70 @@ import (
 	openapi "github.com/aep/apogy/api/go"
 	"github.com/labstack/echo/v4"
 	tikerr "github.com/tikv/client-go/v2/error"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func (s *server) PutDocument(c echo.Context) error {
+	ctx, span := tracer.Start(c.Request().Context(), "PutDocument")
+	defer span.End()
 
 	var doc = new(openapi.Document)
 	if err := c.Bind(doc); err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 	}
 
-	if err := s.validateMeta(doc); err != nil {
+	span.SetAttributes(
+		attribute.String("model", doc.Model),
+		attribute.String("id", doc.Id),
+	)
+
+	err := s.validateMeta(doc)
+
+	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	var err error
-
 	switch doc.Model {
 	case "Model":
-		if err := s.validateSchemaSchema(c.Request().Context(), doc); err != nil {
+		err := s.validateSchemaSchema(ctx, doc)
+		if err != nil {
+			span.RecordError(err)
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
 		}
 	case "Reactor":
-		if err := s.validateReactorSchema(c.Request().Context(), doc); err != nil {
+		err := s.validateReactorSchema(ctx, doc)
+		if err != nil {
+			span.RecordError(err)
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
 		}
 	default:
 	}
 
-	model, err := s.getModel(c.Request().Context(), doc.Model)
+	model, err := s.getModel(ctx, doc.Model)
+
 	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	// Try to save document with retry logic
+	attempts := 0
 	for i := 0; ; i++ {
-		err := s.putDocument1(c, doc, model)
+		attempts++
+		retrySpan := trace.SpanFromContext(ctx)
+		retrySpan.SetAttributes(attribute.Int("attempt", i+1))
+
+		err := s.putDocument1(c, ctx, doc, model)
 		if err == nil {
+			retrySpan.SetAttributes(attribute.Bool("success", true))
 			break
 		}
+
+		retrySpan.RecordError(err)
+
 		if echoErr, ok := err.(*echo.HTTPError); ok {
 			return echoErr
 		}
@@ -61,12 +88,14 @@ func (s *server) PutDocument(c echo.Context) error {
 		slog.Warn("putDocument1", "err", err)
 	}
 
+	span.SetAttributes(attribute.Int("attempts", attempts))
+
 	return c.JSON(http.StatusOK, openapi.PutDocumentOK{
 		Path: doc.Model + "/" + doc.Id,
 	})
 }
 
-func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Model) error {
+func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi.Document, model *Model) error {
 
 	doccpy := *doc_
 	doc := &doccpy
@@ -89,7 +118,7 @@ func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Mod
 
 	if doc.Version != nil || doc.Mut != nil { // Versioned updates
 
-		bytes, err := w2.Get(c.Request().Context(), []byte(path))
+		bytes, err := w2.Get(ctx, []byte(path))
 		if err != nil {
 			if !tikerr.IsErrNotFound(err) {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
@@ -100,7 +129,7 @@ func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Mod
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
-			if err := s.deleteIndex(c.Request().Context(), w2, model, old); err != nil {
+			if err := s.deleteIndex(ctx, w2, model, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
 			}
 
@@ -122,7 +151,7 @@ func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Mod
 	} else { // Non-versioned updates
 
 		r := s.kv.Read()
-		bytes, err := r.Get(c.Request().Context(), []byte(path))
+		bytes, err := r.Get(ctx, []byte(path))
 		r.Close()
 		if err != nil {
 			if !tikerr.IsErrNotFound(err) {
@@ -134,7 +163,7 @@ func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Mod
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("unmarshal error: %v", err))
 			}
 
-			if err := s.deleteIndex(c.Request().Context(), w2, model, old); err != nil {
+			if err := s.deleteIndex(ctx, w2, model, old); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
 			}
 
@@ -174,7 +203,7 @@ func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Mod
 		doc.Mut = nil
 	}
 
-	doc, err = s.ro.Validate(c.Request().Context(), old, doc)
+	doc, err = s.ro.Validate(ctx, old, doc)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -186,11 +215,11 @@ func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Mod
 
 	w2.Put([]byte(path), bytes)
 
-	if err := s.createIndex(c.Request().Context(), w2, model, doc); err != nil {
+	if err := s.createIndex(ctx, w2, model, doc); err != nil {
 		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	}
 
-	if err := w2.Commit(c.Request().Context()); err != nil {
+	if err := w2.Commit(ctx); err != nil {
 		if tikerr.IsErrWriteConflict(err) {
 			if !isMut {
 				return echo.NewHTTPError(http.StatusConflict, fmt.Sprintf("preempted by a different parallel write"))
@@ -202,7 +231,7 @@ func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Mod
 		}
 	}
 
-	err = s.ro.Reconcile(c.Request().Context(), old, doc)
+	err = s.ro.Reconcile(ctx, old, doc)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -211,38 +240,65 @@ func (s *server) putDocument1(c echo.Context, doc_ *openapi.Document, model *Mod
 }
 
 func (s *server) GetDocument(c echo.Context, model string, id string) error {
+	ctx, span := tracer.Start(c.Request().Context(), "GetDocument",
+		trace.WithAttributes(
+			attribute.String("model", model),
+			attribute.String("id", id),
+		),
+	)
+	defer span.End()
 
 	var doc openapi.Document
-	err := s.getDocument(c.Request().Context(), model, id, &doc)
+	err := s.getDocument(ctx, model, id, &doc)
 	if err != nil {
+		span.RecordError(err)
 		return err
 	}
 
 	if model == "Reactor" {
-		s.ro.Status(c.Request().Context(), &doc)
+		s.ro.Status(ctx, &doc)
 	}
 
 	return c.JSON(http.StatusOK, doc)
 }
 
 func (s *server) getDocument(ctx context.Context, model string, id string, doc *openapi.Document) error {
+
+	ctx, span := tracer.Start(ctx, "getDocument",
+		trace.WithAttributes(
+			attribute.String("model", model),
+			attribute.String("id", id),
+		),
+	)
+	defer span.End()
+
 	path, err := safeDBPath(model, id)
 	if err != nil {
+		span.RecordError(err)
 		return err
 	}
 
 	r := s.kv.Read()
 	defer r.Close()
 
+	// Add span for database get operation
 	bytes, err := r.Get(ctx, []byte(path))
+
 	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 	if bytes == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "document not found")
+		notFoundErr := echo.NewHTTPError(http.StatusNotFound, "document not found")
+		span.RecordError(notFoundErr)
+		return notFoundErr
 	}
 
-	if err := DeserializeStore(bytes, doc); err != nil {
+	// Add span for deserialization
+	err = DeserializeStore(bytes, doc)
+
+	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 	}
 
@@ -250,8 +306,17 @@ func (s *server) getDocument(ctx context.Context, model string, id string, doc *
 }
 
 func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
+	ctx, span := tracer.Start(c.Request().Context(), "DeleteDocument",
+		trace.WithAttributes(
+			attribute.String("model", model),
+			attribute.String("id", id),
+		),
+	)
+	defer span.End()
+
 	path, err := safeDBPath(model, id)
 	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -259,61 +324,80 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 	defer w.Close()
 
 	// First get the document to remove its indexes
-	bytes, err := w.Get(c.Request().Context(), []byte(path))
+	bytes, err := w.Get(ctx, []byte(path))
+
 	if err != nil {
+		span.RecordError(err)
 		if tikerr.IsErrNotFound(err) {
 			return echo.NewHTTPError(http.StatusNotFound, "document not found")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 	}
 	if bytes == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "document not found")
+		notFoundErr := echo.NewHTTPError(http.StatusNotFound, "document not found")
+		span.RecordError(notFoundErr)
+		return notFoundErr
 	}
 
 	var doc = new(openapi.Document)
-	if err := DeserializeStore(bytes, doc); err != nil {
+	err = DeserializeStore(bytes, doc)
+
+	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
 	}
 
+	span.SetAttributes(attribute.String("document.model", doc.Model))
+
 	switch doc.Model {
 	case "Model":
-		err := s.checkNothingNeedsModel(c.Request().Context(), doc.Id)
+		err := s.checkNothingNeedsModel(ctx, doc.Id)
 		if err != nil {
+			span.RecordError(err)
 			return err
 		}
 	case "Reactor":
 	default:
 		var schema openapi.Document
-		err := s.getDocument(c.Request().Context(), "Model", doc.Model, &schema)
+		err := s.getDocument(ctx, "Model", doc.Model, &schema)
 		if err != nil {
+			span.RecordError(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, "cannot load model")
 		}
 	}
 
-	_, err = s.ro.Validate(c.Request().Context(), doc, nil)
+	_, err = s.ro.Validate(ctx, doc, nil)
 	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	modell, err := s.getModel(c.Request().Context(), doc.Model)
+	modell, err := s.getModel(ctx, doc.Model)
 	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	// Remove indexes first
-	if err := s.deleteIndex(c.Request().Context(), w, modell, doc); err != nil {
+	err = s.deleteIndex(ctx, w, modell, doc)
+	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("index error: %v", err))
 	}
 
 	// Delete the document
 	w.Del([]byte(path))
 
-	if err := w.Commit(c.Request().Context()); err != nil {
+	err = w.Commit(ctx)
+	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 	}
 
-	err = s.ro.Reconcile(c.Request().Context(), doc, nil)
+	err = s.ro.Reconcile(ctx, doc, nil)
+
 	if err != nil {
+		span.RecordError(err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 

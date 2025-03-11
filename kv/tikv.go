@@ -13,8 +13,13 @@ import (
 	"github.com/tikv/client-go/v2/txnkv"
 	"github.com/tikv/client-go/v2/txnkv/txnsnapshot"
 
+	"go.opentelemetry.io/otel"
+	//"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
+
+var tracer trace.Tracer
 
 func init() {
 	l, p, _ := pingcaplog.InitLogger(&pingcaplog.Config{})
@@ -26,6 +31,8 @@ func init() {
 	l, _ = config.Build()
 
 	pingcaplog.ReplaceGlobals(l, p)
+
+	tracer = otel.Tracer("github.com/aep/apogy/kv")
 }
 
 var log = slog.New(tint.NewHandler(os.Stderr, nil))
@@ -47,6 +54,10 @@ func (w *TikvWrite) Commit(ctx context.Context) error {
 	if w.commited {
 		return fmt.Errorf("already commited")
 	}
+
+	ctx, span := tracer.Start(ctx, "kv.TikvWrite.Commit")
+	defer span.End()
+
 	err := w.txn.Commit(ctx)
 	if err != nil {
 		w.err = err
@@ -57,12 +68,14 @@ func (w *TikvWrite) Commit(ctx context.Context) error {
 }
 
 func (w *TikvWrite) Rollback() error {
+
 	if w.commited {
 		return fmt.Errorf("already commited")
 	}
 	if w.err != nil {
 		return w.err
 	}
+
 	return w.txn.Rollback()
 }
 
@@ -84,6 +97,9 @@ func (w *TikvWrite) Get(ctx context.Context, key []byte) ([]byte, error) {
 		return nil, w.err
 	}
 
+	ctx, span := tracer.Start(ctx, "kv.TikvWrite.Get")
+	defer span.End()
+
 	b, err := w.txn.Get(ctx, key)
 	if err != nil {
 		log.Debug("[tikv].Get:", "key", string(key), "err", err)
@@ -102,6 +118,10 @@ func (w *TikvWrite) Del(key []byte) error {
 
 func (r *TikvWrite) Iter(ctx context.Context, start []byte, end []byte) iter.Seq2[KeyAndValue, error] {
 	return func(yield func(KeyAndValue, error) bool) {
+
+		_, span := tracer.Start(ctx, "kv.TikvWrite.Iter")
+		defer span.End()
+
 		it, err := r.txn.Iter(start, end)
 		if err != nil {
 			log.Debug("[tikv].Iter:", "start", string(start), "end", string(end), "err", err)
@@ -142,6 +162,9 @@ func (r *TikvRead) Get(ctx context.Context, key []byte) ([]byte, error) {
 		return nil, r.err
 	}
 
+	ctx, span := tracer.Start(ctx, "kv.TikvRead.Get")
+	defer span.End()
+
 	b, err := r.txn.Get(ctx, key)
 	if err != nil {
 		log.Debug("[tikv].Get:", "key", string(key), "err", err)
@@ -160,6 +183,10 @@ func (r *TikvRead) SetKeyOnly(b bool) {
 
 func (r *TikvRead) Iter(ctx context.Context, start []byte, end []byte) iter.Seq2[KeyAndValue, error] {
 	return func(yield func(KeyAndValue, error) bool) {
+
+		_, span := tracer.Start(ctx, "kv.TikvRead.Iter")
+		defer span.End()
+
 		it, err := r.txn.Iter(start, end)
 		if err != nil {
 			log.Debug("[tikv].Iter:", "start", string(start), "end", string(end), "err", err)
@@ -190,6 +217,10 @@ func (r *TikvRead) BatchGet(ctx context.Context, keys [][]byte) (map[string][]by
 	if r.err != nil {
 		return nil, r.err
 	}
+
+	ctx, span := tracer.Start(ctx, "kv.TikvRead.BatchGet")
+	defer span.End()
+
 	b, err := r.txn.BatchGet(ctx, keys)
 	if err != nil {
 		log.Debug("[tikv].BatchGet:", "keys", len(keys), "err", err)
@@ -218,6 +249,7 @@ func (t *Tikv) Close() {
 
 func (t *Tikv) Write() Write {
 	txn, err := t.k.Begin()
+	txn.SetEnable1PC(true)
 	return &TikvWrite{txn, err, false}
 }
 

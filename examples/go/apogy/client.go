@@ -33,7 +33,10 @@ func NewClient(server string, opts ...ClientOption) (*Client, error) {
 
 	r := &Client{ClientInterface: client}
 
-	r.Book = &openapi.TypedClient[Book]{client, "com.example.Book"}
+	r.Book = &openapi.TypedClient[Book]{
+		Client: client,
+		Model:  "com.example.Book",
+	}
 
 	return r, nil
 }

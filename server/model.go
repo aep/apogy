@@ -29,6 +29,9 @@ var MODEL_MUTATION = &Model{
 
 func (s *server) getModel(ctx context.Context, id string) (*Model, error) {
 
+	ctx, getModelSpan := tracer.Start(ctx, "getModel")
+	getModelSpan.End()
+
 	if id == "Model" {
 		return MODEL_MODEL, nil
 	} else if id == "Reactor" {

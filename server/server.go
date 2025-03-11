@@ -46,6 +46,7 @@ func newServer(kv kv.KV, bs bus.Bus) *server {
 }
 
 func Main(caCertPath, serverCertPath, serverKeyPath string) {
+
 	kv, err := kv.NewTikv()
 	if err != nil {
 		panic(err)
@@ -64,7 +65,8 @@ func Main(caCertPath, serverCertPath, serverKeyPath string) {
 		defaultBinder: &echo.DefaultBinder{},
 	}
 
-	// Add logging middleware
+	// Add middleware
+	e.Use(TracingMiddleware) // Add OpenTelemetry tracing middleware
 	e.Use(loggingMiddleware)
 	e.Use(middleware.BodyLimit("2M"))
 
@@ -105,7 +107,13 @@ func Main(caCertPath, serverCertPath, serverKeyPath string) {
 		}
 	} else {
 		fmt.Println("⇨ APOGY [tikv, solo, insecure]")
-		if err := e.Start(":27666"); err != http.ErrServerClosed {
+		// Wrap Echo handler with OpenTelemetry
+		handler := e
+		s := &http.Server{
+			Addr:    ":27666",
+			Handler: handler,
+		}
+		if err := s.ListenAndServe(); err != http.ErrServerClosed {
 			panic(fmt.Sprintf("failed to serve: %v", err))
 		}
 	}
