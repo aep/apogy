@@ -2,7 +2,6 @@ package aql
 
 import (
 	openapi "github.com/aep/apogy/api/go"
-	"strings"
 )
 
 // ToSearchRequest converts an AQL Query to an openapi.SearchRequest
@@ -15,44 +14,9 @@ func (q *Query) ToSearchRequest() *openapi.SearchRequest {
 		Full:  &full,
 	}
 
-	// Map filters
+	// Use filters directly
 	if len(q.Filter) > 0 {
-		filters := make([]openapi.Filter, 0, len(q.Filter))
-		for k, v := range q.Filter {
-			// Check for operator in the key
-			if strings.HasSuffix(k, "<") {
-				baseKey := strings.TrimSuffix(k, "<")
-				filter := openapi.Filter{
-					Key:  baseKey,
-					Less: &v,
-				}
-				filters = append(filters, filter)
-			} else if strings.HasSuffix(k, ">") {
-				baseKey := strings.TrimSuffix(k, ">")
-				filter := openapi.Filter{
-					Key:     baseKey,
-					Greater: &v,
-				}
-				filters = append(filters, filter)
-			} else if strings.HasSuffix(k, "^") {
-				baseKey := strings.TrimSuffix(k, "^")
-				filter := openapi.Filter{
-					Key:    baseKey,
-					Prefix: &v,
-				}
-				filters = append(filters, filter)
-			} else {
-				// Regular equals operator
-				filter := openapi.Filter{
-					Key: k,
-				}
-				if v != nil {
-					filter.Equal = &v
-				}
-				filters = append(filters, filter)
-			}
-		}
-		req.Filters = &filters
+		req.Filters = &q.Filter
 	}
 
 	// Map nested/linked queries

@@ -8,5 +8,6 @@ export type Filter = {
     greater?: any;
     less?: any;
     prefix?: any;
+    skip?: any;
 };
 

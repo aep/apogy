@@ -3,6 +3,7 @@ package aql
 import (
 	"errors"
 	"fmt"
+	openapi "github.com/aep/apogy/api/go"
 	"strconv"
 	"strings"
 	"unicode"
@@ -26,6 +27,7 @@ const (
 	TOKEN_COMMA
 	TOKEN_PARAM // New token type for parameter placeholders
 	TOKEN_AND   // Logical AND operator (& or &&)
+	TOKEN_SKIP  // Skip operator ($)
 )
 
 func tokenName(i TokenType) string {
@@ -58,6 +60,8 @@ func tokenName(i TokenType) string {
 		return "PARAM"
 	case TOKEN_AND:
 		return "AND"
+	case TOKEN_SKIP:
+		return "SKIP"
 	}
 	return "ILLEGAL"
 }
@@ -155,6 +159,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{TOKEN_GREATER, string(l.ch)}
 	case '^':
 		tok = Token{TOKEN_PREFIX, string(l.ch)}
+	case '$':
+		tok = Token{TOKEN_SKIP, string(l.ch)}
 	case '(':
 		tok = Token{TOKEN_LPAREN, string(l.ch)}
 	case ')':
@@ -203,7 +209,7 @@ func (l *Lexer) NextToken() Token {
 
 type Query struct {
 	Type   string
-	Filter map[string]interface{}
+	Filter []openapi.Filter
 	Links  []*Query
 }
 
@@ -213,30 +219,62 @@ func (q *Query) String() string {
 
 	if len(q.Filter) > 0 {
 		filters := make([]string, 0)
-		for k, v := range q.Filter {
-			// Determine operator
+		for _, filter := range q.Filter {
 			var operator string = "="
-			var actualKey string = k
+			var value interface{} = nil
+			var skipValue interface{} = nil
 
-			if strings.HasSuffix(k, "<") {
+			if filter.Equal != nil {
+				operator = "="
+				value = *filter.Equal
+			} else if filter.Less != nil {
 				operator = "<"
-				actualKey = strings.TrimSuffix(k, "<")
-			} else if strings.HasSuffix(k, ">") {
+				value = *filter.Less
+			} else if filter.Greater != nil {
 				operator = ">"
-				actualKey = strings.TrimSuffix(k, ">")
-			} else if strings.HasSuffix(k, "^") {
+				value = *filter.Greater
+			} else if filter.Prefix != nil {
 				operator = "^"
-				actualKey = strings.TrimSuffix(k, "^")
+				value = *filter.Prefix
+
+				// Check for Skip value
+				if filter.Skip != nil {
+					skipValue = *filter.Skip
+				}
 			}
 
-			switch val := v.(type) {
-			case string:
-				filters = append(filters, fmt.Sprintf(`%s%s"%s"`, actualKey, operator, val))
-			case float64:
-				filters = append(filters, fmt.Sprintf(`%s%s%g`, actualKey, operator, val))
-			case bool:
-				filters = append(filters, fmt.Sprintf(`%s%s%v`, actualKey, operator, val))
+			if value == nil {
+				filters = append(filters, filter.Key)
+				continue
 			}
+
+			var filterStr string
+			switch val := value.(type) {
+			case string:
+				filterStr = fmt.Sprintf(`%s%s"%s"`, filter.Key, operator, val)
+			case float64:
+				filterStr = fmt.Sprintf(`%s%s%g`, filter.Key, operator, val)
+			case bool:
+				filterStr = fmt.Sprintf(`%s%s%v`, filter.Key, operator, val)
+			default:
+				filterStr = fmt.Sprintf(`%s%s%v`, filter.Key, operator, val)
+			}
+
+			// Append skip part if it exists
+			if skipValue != nil {
+				switch skipVal := skipValue.(type) {
+				case string:
+					filterStr += fmt.Sprintf(`$"%s"`, skipVal)
+				case float64:
+					filterStr += fmt.Sprintf(`$%g`, skipVal)
+				case bool:
+					filterStr += fmt.Sprintf(`$%v`, skipVal)
+				default:
+					filterStr += fmt.Sprintf(`$%v`, skipVal)
+				}
+			}
+
+			filters = append(filters, filterStr)
 		}
 		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(filters, " ")))
 	}
@@ -306,8 +344,8 @@ func (p *Parser) ParseQuery() (*Query, error) {
 	return query, nil
 }
 
-func (p *Parser) parseFilter() (map[string]interface{}, error) {
-	filter := make(map[string]interface{})
+func (p *Parser) parseFilter() ([]openapi.Filter, error) {
+	filters := make([]openapi.Filter, 0)
 
 	p.nextToken() // consume (
 
@@ -326,7 +364,11 @@ func (p *Parser) parseFilter() (map[string]interface{}, error) {
 		p.nextToken()
 
 		if p.curToken.Type == TOKEN_RPAREN || p.curToken.Type == TOKEN_IDENT {
-			filter[key] = nil
+			// Create a filter with just a key (no operator/value)
+			filter := openapi.Filter{
+				Key: key,
+			}
+			filters = append(filters, filter)
 			continue
 		}
 
@@ -378,18 +420,84 @@ func (p *Parser) parseFilter() (map[string]interface{}, error) {
 			}
 		}
 
-		// Store value with appropriate operator metadata
-		switch operator {
-		case TOKEN_EQUALS:
-			filter[key] = processedValue
-		case TOKEN_LESS:
-			filter[key+"<"] = processedValue
-		case TOKEN_GREATER:
-			filter[key+">"] = processedValue
-		case TOKEN_PREFIX:
-			filter[key+"^"] = processedValue
+		// Create filter with appropriate operator
+		filter := openapi.Filter{
+			Key: key,
 		}
 
+		// Set the operator-specific field
+		switch operator {
+		case TOKEN_EQUALS:
+			filter.Equal = &processedValue
+		case TOKEN_LESS:
+			filter.Less = &processedValue
+		case TOKEN_GREATER:
+			filter.Greater = &processedValue
+		case TOKEN_PREFIX:
+			filter.Prefix = &processedValue
+
+			// Check for SKIP operation after a PREFIX
+			p.nextToken()
+
+			if p.curToken.Type == TOKEN_SKIP {
+				// We found a skip operation, advance and get the skip value
+				p.nextToken()
+
+				if p.curToken.Type != TOKEN_IDENT && p.curToken.Type != TOKEN_STRING && p.curToken.Type != TOKEN_PARAM {
+					return nil, fmt.Errorf("expected identifier, string, or parameter placeholder as skip value, got %s", tokenName(p.curToken.Type))
+				}
+
+				var skipValue interface{}
+
+				if p.curToken.Type == TOKEN_PARAM {
+					// Handle parameter placeholder for skip
+					if p.collectingOnly {
+						p.paramIndex++
+						skipValue = nil
+					} else {
+						if p.paramIndex >= len(p.params) {
+							return nil, fmt.Errorf("not enough parameters provided for skip, needed at least %d", p.paramIndex+1)
+						}
+						skipValue = p.params[p.paramIndex]
+						p.paramIndex++
+					}
+				} else {
+					// Handle literal skip values
+					skip := p.curToken.Literal
+
+					if p.curToken.Type == TOKEN_IDENT {
+						if skip == "true" {
+							skipValue = true
+						} else if skip == "false" {
+							skipValue = false
+						} else if num, err := strconv.ParseFloat(skip, 64); err == nil {
+							skipValue = num
+						} else {
+							skipValue = skip
+						}
+					} else if p.curToken.Type == TOKEN_STRING {
+						skipValue = skip
+					}
+				}
+
+				// Set the Skip field in the filter
+				filter.Skip = &skipValue
+
+				// Add the filter with both Prefix and Skip to the filters slice
+				filters = append(filters, filter)
+
+				p.nextToken()
+				continue // Skip the next token advancement since we've already done it
+			} else {
+				// No skip operation, add the filter with just the prefix
+				filters = append(filters, filter)
+				continue // Skip the p.nextToken() at the end of the loop since we already advanced
+			}
+		default:
+			// For other operators, proceed normally
+		}
+
+		filters = append(filters, filter)
 		p.nextToken()
 	}
 
@@ -398,7 +506,7 @@ func (p *Parser) parseFilter() (map[string]interface{}, error) {
 	}
 	p.nextToken()
 
-	return filter, nil
+	return filters, nil
 }
 
 func (p *Parser) parseNested() ([]*Query, error) {

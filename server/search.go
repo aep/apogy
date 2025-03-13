@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -72,8 +73,6 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 		if strVal, ok := (*filter.Prefix).(string); ok {
 			key = append(key, 0xff)
 			key = append(key, []byte(strVal)...)
-
-			// FIXME this is a prefix search rather than actually greater
 			key = append(key, 0x00)
 		} else {
 			return nil, fmt.Errorf("%T can't be used as search val for greater than", *filter.Greater)
@@ -88,10 +87,10 @@ func makeKey(model string, filter *openapi.Filter) ([]byte, error) {
 	return key, nil
 }
 
-func (s *server) find(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string) (findResult, error) {
+func (s *server) scan(ctx context.Context, r kv.Read, model string, id string, filter *openapi.Filter, limit int, cursor *string) (findResult, error) {
 
 	fasj, _ := json.Marshal(filter)
-	ctx, span := tracer.Start(ctx, "find", trace.WithAttributes(
+	ctx, span := tracer.Start(ctx, "scan", trace.WithAttributes(
 		attribute.String("model", model),
 		attribute.String("subid", id),
 		attribute.String("filter", string(fasj)),
@@ -151,17 +150,37 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 		end[len(end)-2] = end[len(end)-2] + 1
 	}
 
+	seen := make(map[string]bool)
+	var documents []openapi.Document
+
 	if cursor != nil {
 		if cursorBytes, err := base64.StdEncoding.DecodeString(*cursor); err == nil && len(cursorBytes) > 0 {
 			if bytes.Compare(cursorBytes, start) >= 0 && bytes.Compare(cursorBytes, end) < 0 {
 				start = cursorBytes
+			} else {
+				span.RecordError(fmt.Errorf("invalid cursor"))
+				slog.Warn("got invalid cursor")
+				return findResult{}, nil
 			}
 		}
 	}
 
-	seen := make(map[string]bool)
-	var documents []openapi.Document
+	var prefixStartForSkipFilter []byte
+	var skipFilter []byte
+	if filter != nil && filter.Skip != nil {
+		if skipstr, ok := (*filter.Skip).(string); ok {
+			skipFilter = []byte(skipstr)
+			var err error
+			prefixStartForSkipFilter, err = makeKey(model, filter)
+			if err != nil {
+				return findResult{}, echo.NewHTTPError(http.StatusBadRequest, err.Error())
+			}
+		}
+	}
+
 	var lastKey []byte
+
+restartAfterSkip:
 
 	for kv, err := range r.Iter(ctx, start, end) {
 		if err != nil {
@@ -169,6 +188,7 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 		}
 
 		var id string
+		var doc openapi.Document
 
 		if filter == nil || filter.Key == "id" {
 			idx := bytes.Split(kv.K, []byte{0xff})
@@ -177,32 +197,67 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 			}
 			id = string(idx[len(idx)-2])
 
-			if !seen[id] {
-				seen[id] = true
-				var doc openapi.Document
-				if err := DeserializeStore(kv.V, &doc); err != nil {
-					return findResult{}, echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
-				}
-				documents = append(documents, doc)
-				lastKey = kv.K
+			if seen[id] {
+				continue
 			}
+
+			seen[id] = true
+			doc.Model = model
+			doc.Id = id
+
+			// TODO its actually refetched anyway :(
+			//if err := DeserializeStore(kv.V, &doc); err != nil {
+			//	return findResult{}, echo.NewHTTPError(http.StatusInternalServerError, "unmarshal error")
+			//}
+
+			lastKey = kv.K
+
 		} else {
 			vdx := bytes.Split(kv.V, []byte{0xff})
 			id = string(vdx[0])
 
-			if !seen[id] {
-				seen[id] = true
-				var doc openapi.Document
-				doc.Model = model
-				doc.Id = id
-				documents = append(documents, doc)
-				lastKey = kv.K
+			if seen[id] {
+				continue
 			}
+
+			seen[id] = true
+			doc.Model = model
+			doc.Id = id
+			lastKey = kv.K
 		}
 
+		documents = append(documents, doc)
 		if len(documents) >= limit {
 			break
 		}
+
+		if skipFilter != nil {
+
+			prefixLen := len(prefixStartForSkipFilter)
+
+			if prefixLen < len(kv.K) {
+
+				// Search in the part after the prefix
+				skipIndex := bytes.Index(kv.K[prefixLen:], []byte(skipFilter))
+
+				if skipIndex >= 0 {
+					// Adjust skipIndex to account for the prefix
+					skipIndex += prefixLen
+
+					// Create a new nextKey based on current key up to the skip string
+					nextKey := make([]byte, skipIndex) // Only copy up to the skip position
+					copy(nextKey, kv.K[:skipIndex])
+
+					// Increment the last byte
+					nextKey[len(nextKey)-1] = nextKey[len(nextKey)-1] + 1
+
+					// Restart the iterator with the new position
+					start = nextKey
+					goto restartAfterSkip
+				}
+			}
+		}
+
 	}
 
 	var nextCursor *string
@@ -387,7 +442,7 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 		req.Full = &full
 	}
 
-	var limit = 2000
+	var limit = 1000
 	if req.Limit != nil {
 		limit = *req.Limit
 	}
@@ -396,7 +451,8 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 	var matchedDocs []openapi.Document
 
 	if req.Filters == nil || len(*req.Filters) == 0 {
-		result, err := s.find(ctx, r, req.Model, "", nil, limit, req.Cursor)
+
+		result, err := s.scan(ctx, r, req.Model, "", nil, limit, req.Cursor)
 		if err != nil {
 			return nil, err
 		}
@@ -405,7 +461,7 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 
 	} else {
 
-		result, err := s.find(ctx, r, req.Model, "", &(*req.Filters)[0], limit, req.Cursor)
+		result, err := s.scan(ctx, r, req.Model, "", &(*req.Filters)[0], limit, req.Cursor)
 		if err != nil {
 			return nil, err
 		}
@@ -416,7 +472,7 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 
 			for _, filter := range (*req.Filters)[1:] {
 
-				subResult, err := s.find(ctx, r, req.Model, doc.Id, &filter, 1, nil)
+				subResult, err := s.scan(ctx, r, req.Model, doc.Id, &filter, 1, nil)
 				if err != nil {
 					return nil, err
 				}

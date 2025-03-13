@@ -199,6 +199,7 @@ components:
         greater: {}
         less: {}
         prefix: {}
+        skip: {}
 
     Query:
       type: object

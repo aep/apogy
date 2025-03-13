@@ -2,6 +2,7 @@ package aql
 
 import (
 	"encoding/json"
+	openapi "github.com/aep/apogy/api/go"
 	"reflect"
 	"testing"
 )
@@ -130,6 +131,36 @@ func TestLexer(t *testing.T) {
 				{TOKEN_EOF, ""},
 			},
 		},
+		{
+			// Test PREFIX and SKIP operators
+			`Object(path^"prefix"$path)`,
+			[]Token{
+				{TOKEN_IDENT, "Object"},
+				{TOKEN_LPAREN, "("},
+				{TOKEN_IDENT, "path"},
+				{TOKEN_PREFIX, "^"},
+				{TOKEN_STRING, "prefix"},
+				{TOKEN_SKIP, "$"},
+				{TOKEN_IDENT, "path"},
+				{TOKEN_RPAREN, ")"},
+				{TOKEN_EOF, ""},
+			},
+		},
+		{
+			// Test PREFIX and SKIP operators with strings
+			`Object(path^"prefix"$"/path")`,
+			[]Token{
+				{TOKEN_IDENT, "Object"},
+				{TOKEN_LPAREN, "("},
+				{TOKEN_IDENT, "path"},
+				{TOKEN_PREFIX, "^"},
+				{TOKEN_STRING, "prefix"},
+				{TOKEN_SKIP, "$"},
+				{TOKEN_STRING, "/path"},
+				{TOKEN_RPAREN, ")"},
+				{TOKEN_EOF, ""},
+			},
+		},
 	}
 
 	for i, tt := range tests {
@@ -172,8 +203,10 @@ func TestParser(t *testing.T) {
 			shouldError: false,
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"val": nil,
+				Filter: []openapi.Filter{
+					{
+						Key: "val",
+					},
 				},
 			},
 		},
@@ -182,9 +215,13 @@ func TestParser(t *testing.T) {
 			shouldError: false,
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"val":   nil,
-					"val.a": nil,
+				Filter: []openapi.Filter{
+					{
+						Key: "val",
+					},
+					{
+						Key: "val.a",
+					},
 				},
 			},
 		},
@@ -212,8 +249,11 @@ func TestParser(t *testing.T) {
 			input: `Book(id=123) { Author }`,
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"id": float64(123),
+				Filter: []openapi.Filter{
+					{
+						Key:   "id",
+						Equal: createValue(float64(123)),
+					},
 				},
 				Links: []*Query{
 					{
@@ -230,8 +270,11 @@ func TestParser(t *testing.T) {
 				Links: []*Query{
 					{
 						Type: "Author",
-						Filter: map[string]interface{}{
-							"active": true,
+						Filter: []openapi.Filter{
+							{
+								Key:   "active",
+								Equal: createValue(true),
+							},
 						},
 						Links: []*Query{
 							{
@@ -247,10 +290,19 @@ func TestParser(t *testing.T) {
 			input: `Book(name="test" count=42 ,,,, enabled=true)`,
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"name":    "test",
-					"count":   float64(42),
-					"enabled": true,
+				Filter: []openapi.Filter{
+					{
+						Key:   "name",
+						Equal: createValue("test"),
+					},
+					{
+						Key:   "count",
+						Equal: createValue(float64(42)),
+					},
+					{
+						Key:   "enabled",
+						Equal: createValue(true),
+					},
 				},
 			},
 			shouldError: false,
@@ -259,10 +311,19 @@ func TestParser(t *testing.T) {
 			input: `Book(name="test" & count=42 & enabled=true)`,
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"name":    "test",
-					"count":   float64(42),
-					"enabled": true,
+				Filter: []openapi.Filter{
+					{
+						Key:   "name",
+						Equal: createValue("test"),
+					},
+					{
+						Key:   "count",
+						Equal: createValue(float64(42)),
+					},
+					{
+						Key:   "enabled",
+						Equal: createValue(true),
+					},
 				},
 			},
 			shouldError: false,
@@ -271,10 +332,19 @@ func TestParser(t *testing.T) {
 			input: `Book(name="test" && count=42 && enabled=true)`,
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"name":    "test",
-					"count":   float64(42),
-					"enabled": true,
+				Filter: []openapi.Filter{
+					{
+						Key:   "name",
+						Equal: createValue("test"),
+					},
+					{
+						Key:   "count",
+						Equal: createValue(float64(42)),
+					},
+					{
+						Key:   "enabled",
+						Equal: createValue(true),
+					},
 				},
 			},
 			shouldError: false,
@@ -283,10 +353,77 @@ func TestParser(t *testing.T) {
 			input: `Book(name="test" & count=42 && enabled=true)`,
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"name":    "test",
-					"count":   float64(42),
-					"enabled": true,
+				Filter: []openapi.Filter{
+					{
+						Key:   "name",
+						Equal: createValue("test"),
+					},
+					{
+						Key:   "count",
+						Equal: createValue(float64(42)),
+					},
+					{
+						Key:   "enabled",
+						Equal: createValue(true),
+					},
+				},
+			},
+			shouldError: false,
+		},
+		{
+			// Test Skip field with string values
+			input: `ixeri.Object(val.path^"pthlonghorn$backups"$"/path/")`,
+			expected: &Query{
+				Type: "ixeri.Object",
+				Filter: []openapi.Filter{
+					{
+						Key:    "val.path",
+						Prefix: createValue("pthlonghorn$backups"),
+						Skip:   createValue("/path/"),
+					},
+				},
+			},
+			shouldError: false,
+		},
+		{
+			// Test Skip field with identifier values
+			input: `ixeri.Object(val.path^pthlonghornbackups$path)`,
+			expected: &Query{
+				Type: "ixeri.Object",
+				Filter: []openapi.Filter{
+					{
+						Key:    "val.path",
+						Prefix: createValue("pthlonghornbackups"),
+						Skip:   createValue("path"),
+					},
+				},
+			},
+			shouldError: false,
+		},
+		{
+			// Test Prefix without Skip
+			input: `ixeri.Object(val.path^"pthlonghornbackups")`,
+			expected: &Query{
+				Type: "ixeri.Object",
+				Filter: []openapi.Filter{
+					{
+						Key:    "val.path",
+						Prefix: createValue("pthlonghornbackups"),
+					},
+				},
+			},
+			shouldError: false,
+		},
+		{
+			// Test with a dollar sign in the string (not a Skip operator)
+			input: `ixeri.Object(val.path^"pthlonghornbac$kups")`,
+			expected: &Query{
+				Type: "ixeri.Object",
+				Filter: []openapi.Filter{
+					{
+						Key:    "val.path",
+						Prefix: createValue("pthlonghornbac$kups"),
+					},
 				},
 			},
 			shouldError: false,
@@ -357,6 +494,16 @@ func TestEdgeCases(t *testing.T) {
 			input:       "Book(name=?)",
 			shouldError: true,
 		},
+		{
+			// Missing value after Skip operator
+			input:       `Object(path^"prefix"$)`,
+			shouldError: true,
+		},
+		{
+			// Skip operator without preceding Prefix
+			input:       `Object(path$"value")`,
+			shouldError: true,
+		},
 	}
 
 	for i, tt := range tests {
@@ -385,8 +532,11 @@ func TestParameterizedQueries(t *testing.T) {
 			},
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"name": "Harry Potter",
+				Filter: []openapi.Filter{
+					{
+						Key:   "name",
+						Equal: createValue("Harry Potter"),
+					},
 				},
 			},
 			shouldError: false,
@@ -401,10 +551,19 @@ func TestParameterizedQueries(t *testing.T) {
 			},
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"name":      "Game of Thrones",
-					"count":     float64(42),
-					"available": true,
+				Filter: []openapi.Filter{
+					{
+						Key:   "name",
+						Equal: createValue("Game of Thrones"),
+					},
+					{
+						Key:   "count",
+						Equal: createValue(float64(42)),
+					},
+					{
+						Key:   "available",
+						Equal: createValue(true),
+					},
 				},
 			},
 			shouldError: false,
@@ -420,11 +579,23 @@ func TestParameterizedQueries(t *testing.T) {
 			},
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"title":       "The Hobbit",
-					"price<":      float64(20),
-					"popularity>": float64(4),
-					"prefix^":     "Lord",
+				Filter: []openapi.Filter{
+					{
+						Key:   "title",
+						Equal: createValue("The Hobbit"),
+					},
+					{
+						Key:  "price",
+						Less: createValue(float64(20)),
+					},
+					{
+						Key:     "popularity",
+						Greater: createValue(float64(4)),
+					},
+					{
+						Key:    "prefix",
+						Prefix: createValue("Lord"),
+					},
 				},
 			},
 			shouldError: false,
@@ -438,14 +609,20 @@ func TestParameterizedQueries(t *testing.T) {
 			},
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"id": float64(123),
+				Filter: []openapi.Filter{
+					{
+						Key:   "id",
+						Equal: createValue(float64(123)),
+					},
 				},
 				Links: []*Query{
 					{
 						Type: "Author",
-						Filter: map[string]interface{}{
-							"age>": float64(30),
+						Filter: []openapi.Filter{
+							{
+								Key:     "age",
+								Greater: createValue(float64(30)),
+							},
 						},
 					},
 				},
@@ -464,11 +641,57 @@ func TestParameterizedQueries(t *testing.T) {
 			params: []interface{}{float64(123), "extra", "params"},
 			expected: &Query{
 				Type: "Book",
-				Filter: map[string]interface{}{
-					"id": float64(123),
+				Filter: []openapi.Filter{
+					{
+						Key:   "id",
+						Equal: createValue(float64(123)),
+					},
 				},
 			},
 			shouldError: false, // Extra params are ignored
+		},
+		{
+			name:  "Skip operator with parameter",
+			input: `Object(path^?$?)`,
+			params: []interface{}{
+				"prefix-value",
+				"skip-value",
+			},
+			expected: &Query{
+				Type: "Object",
+				Filter: []openapi.Filter{
+					{
+						Key:    "path",
+						Prefix: createValue("prefix-value"),
+						Skip:   createValue("skip-value"),
+					},
+				},
+			},
+			shouldError: false,
+		},
+		{
+			name:  "Skip with string parameter",
+			input: `Object(path^"fixed-prefix"$?)`,
+			params: []interface{}{
+				"skip-param",
+			},
+			expected: &Query{
+				Type: "Object",
+				Filter: []openapi.Filter{
+					{
+						Key:    "path",
+						Prefix: createValue("fixed-prefix"),
+						Skip:   createValue("skip-param"),
+					},
+				},
+			},
+			shouldError: false,
+		},
+		{
+			name:        "Not enough parameters for Skip",
+			input:       `Object(path^?$?)`,
+			params:      []interface{}{"prefix-only"},
+			shouldError: true,
 		},
 	}
 
@@ -496,6 +719,7 @@ func TestParameterizedQueries(t *testing.T) {
 	}
 }
 
-func newStr(i string) *string {
-	return &i
+// Helper function to create a pointer to a value
+func createValue(value interface{}) *interface{} {
+	return &value
 }
