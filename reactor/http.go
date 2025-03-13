@@ -85,6 +85,10 @@ func (hr *HttpReactor) Validate(ctx context.Context, ro *Reactor, old *openapi.D
 		return nil, fmt.Errorf("reconciler rejected: %s", *response.Reject.Message)
 	}
 
+	if response.Document != nil {
+		return response.Document, nil
+	}
+
 	return nuw, nil
 }
 

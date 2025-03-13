@@ -131,9 +131,9 @@ type Document[Val any] struct {
 	Mut Mutations ` + "`json:\"mut\",omitempty`" + ` 
 }
 
-type ValidationRequest[Val any] struct {
-	Current *Document[Val] ` + "`json:\"current,omitempty\"`" + `
-	Pending *Document[Val] ` + "`json:\"pending,omitempty\"`" + ` 
+type ValidationRequest[Doc any] struct {
+	Current *Doc ` + "`json:\"current,omitempty\"`" + `
+	Pending *Doc ` + "`json:\"pending,omitempty\"`" + ` 
 }
 
 {{range $t, $n := .Types}} 

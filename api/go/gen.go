@@ -130,7 +130,8 @@ type ValidationRequest struct {
 
 // ValidationResponse defines model for ValidationResponse.
 type ValidationResponse struct {
-	Reject *struct {
+	Document *Document `json:"document,omitempty"`
+	Reject   *struct {
 		Message *string `json:"message,omitempty"`
 	} `json:"reject,omitempty"`
 }

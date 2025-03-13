@@ -315,8 +315,11 @@ components:
     ValidationResponse:
       type: object
       properties:
+        document:
+          $ref: '#/components/schemas/Document'
         reject:
           type: object
           properties:
             message:
               type: string
+
