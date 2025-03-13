@@ -2,8 +2,12 @@ package reactor
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -12,8 +16,8 @@ import (
 
 type Runtime interface {
 	Ready(model *openapi.Document, arg interface{}) (interface{}, error)
-	Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error)
-	Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) error
+	Validate(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error)
+	Reconcile(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) error
 	Stop()
 }
 
@@ -26,13 +30,52 @@ type Reactor struct {
 	lock            sync.RWMutex
 	running         map[string]Runtime
 	models2reactors map[string][]reactorReadyArgs
+
+	tlsConfig *tls.Config
+	tlsClient *http.Client
 }
 
-func NewReactor() *Reactor {
+func NewReactor(caCertPath, serverCertPath, serverKeyPath string) *Reactor {
 	ro := &Reactor{
 		running:         make(map[string]Runtime),
 		models2reactors: make(map[string][]reactorReadyArgs),
 	}
+
+	// Load TLS configuration if paths are provided
+	if caCertPath != "" && serverCertPath != "" && serverKeyPath != "" {
+		// Load the CA cert
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			slog.Error("failed to read CA certificate", "error", err)
+		} else {
+			// Create a cert pool and add the CA cert
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCert) {
+				slog.Error("failed to append CA certificate to pool")
+			} else {
+				// Load client certificate
+				cert, err := tls.LoadX509KeyPair(serverCertPath, serverKeyPath)
+				if err != nil {
+					slog.Error("failed to load client certificate/key", "error", err)
+				} else {
+					// Create a TLS config with the certificate and key
+					ro.tlsConfig = &tls.Config{
+						Certificates: []tls.Certificate{cert},
+						RootCAs:      caCertPool,
+					}
+
+					// Create a reusable HTTP client with TLS configuration
+					ro.tlsClient = &http.Client{
+						Transport: &http.Transport{
+							TLSClientConfig: ro.tlsConfig,
+						},
+					}
+					slog.Info("TLS configuration loaded successfully")
+				}
+			}
+		}
+	}
+
 	ro.startBuiltins()
 	return ro
 }
@@ -129,7 +172,7 @@ func (ro *Reactor) Validate(ctx context.Context, old *openapi.Document, nuw *ope
 
 		if rt != nil {
 			var err error
-			nuw, err = rt.Validate(ctx, old, nuw, runArgs.args)
+			nuw, err = rt.Validate(ctx, ro, old, nuw, runArgs.args)
 			if err != nil {
 				return nuw, fmt.Errorf("reactor %s rejected change: %w", runArgs.reactorName, err)
 			}
@@ -181,7 +224,7 @@ func (ro *Reactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *op
 			var delay = 10 * time.Millisecond
 			for i := 0; ; i++ {
 
-				err := rt.Reconcile(ctx, old, nuw, a.args)
+				err := rt.Reconcile(ctx, ro, old, nuw, a.args)
 
 				if err == nil {
 					break

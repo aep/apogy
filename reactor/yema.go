@@ -42,7 +42,7 @@ func (*yemaReactor) Ready(model *openapi.Document, args interface{}) (interface{
 func (cr *yemaReactor) Stop() {
 }
 
-func (yr *yemaReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
+func (yr *yemaReactor) Validate(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
 
 	if nuw == nil {
 		return nil, nil
@@ -72,6 +72,6 @@ func (yr *yemaReactor) Validate(ctx context.Context, old *openapi.Document, nuw 
 	return nuw, nil
 }
 
-func (cr *yemaReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
+func (cr *yemaReactor) Reconcile(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
 	return nil
 }

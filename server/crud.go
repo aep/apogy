@@ -233,7 +233,6 @@ func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi
 	err = w2.Commit(ctx)
 	commitDuration := time.Since(commitStart)
 
-	// Always record the commit duration, even if it failed
 	kvCommitDuration.WithLabelValues("write_transaction").Observe(commitDuration.Seconds())
 
 	if err != nil {
@@ -253,7 +252,7 @@ func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi
 
 	err = s.ro.Reconcile(ctx, old, doc)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
 	}
 
 	return nil

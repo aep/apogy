@@ -84,7 +84,7 @@ func (cr *cueReactor) Ready(model *openapi.Document, args interface{}) (interfac
 	return &cueReady{cctx: ctx, schema: schema2}, nil
 }
 
-func (jsr *cueReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
+func (jsr *cueReactor) Validate(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
 
 	if nuw == nil {
 		return nil, nil
@@ -140,6 +140,6 @@ func (jsr *cueReactor) Validate(ctx context.Context, old *openapi.Document, nuw 
 	return nuw, nil
 }
 
-func (cr *cueReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
+func (cr *cueReactor) Reconcile(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
 	return nil
 }
