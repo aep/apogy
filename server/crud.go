@@ -76,6 +76,17 @@ func (s *server) PutDocument(c echo.Context) error {
 		retrySpan.RecordError(err)
 
 		if echoErr, ok := err.(*echo.HTTPError); ok {
+			// Record failed commit
+			if echoErr.Code == http.StatusInternalServerError {
+				kvCommitFailures.WithLabelValues("put_document", "internal_error").Inc()
+			} else if echoErr.Code == http.StatusConflict {
+				kvCommitFailures.WithLabelValues("put_document", "write_conflict").Inc()
+			} else {
+				kvCommitFailures.WithLabelValues("put_document", "other").Inc()
+			}
+
+			// Record retries for failed operation
+			kvCommitRetries.WithLabelValues("put_document", "failed").Observe(float64(attempts - 1))
 			return echoErr
 		}
 
@@ -88,7 +99,9 @@ func (s *server) PutDocument(c echo.Context) error {
 		slog.Warn("putDocument1", "err", err)
 	}
 
+	// Record successful commit metrics
 	span.SetAttributes(attribute.Int("attempts", attempts))
+	kvCommitRetries.WithLabelValues("put_document", "success").Observe(float64(attempts - 1))
 
 	return c.JSON(http.StatusOK, doc)
 }
@@ -216,14 +229,24 @@ func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi
 		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	}
 
-	if err := w2.Commit(ctx); err != nil {
+	commitStart := time.Now()
+	err = w2.Commit(ctx)
+	commitDuration := time.Since(commitStart)
+
+	// Always record the commit duration, even if it failed
+	kvCommitDuration.WithLabelValues("write_transaction").Observe(commitDuration.Seconds())
+
+	if err != nil {
+		// Record failed commit metrics
 		if tikerr.IsErrWriteConflict(err) {
+			kvCommitFailures.WithLabelValues("write_transaction", "write_conflict").Inc()
 			if !isMut {
 				return echo.NewHTTPError(http.StatusConflict, fmt.Sprintf("preempted by a different parallel write"))
 			} else {
 				return err
 			}
 		} else {
+			kvCommitFailures.WithLabelValues("write_transaction", "database_error").Inc()
 			return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 		}
 	}
@@ -385,11 +408,26 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 	// Delete the document
 	w.Del([]byte(path))
 
+	// Measure KV commit time
+	commitStart := time.Now()
 	err = w.Commit(ctx)
+	commitDuration := time.Since(commitStart)
+
+	// Always record the commit duration, even if it failed
+	kvCommitDuration.WithLabelValues("delete_document").Observe(commitDuration.Seconds())
+
 	if err != nil {
 		span.RecordError(err)
+		// Record failed commit
+		if tikerr.IsErrWriteConflict(err) {
+			kvCommitFailures.WithLabelValues("delete_document", "write_conflict").Inc()
+		} else {
+			kvCommitFailures.WithLabelValues("delete_document", "database_error").Inc()
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 	}
+
+	// For delete, there are no retries to record as it's a single operation
 
 	err = s.ro.Reconcile(ctx, doc, nil)
 

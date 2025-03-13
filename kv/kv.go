@@ -14,6 +14,7 @@ type KV interface {
 	Close()
 	Write() Write
 	Read() Read
+	Ping() error
 }
 
 type Read interface {

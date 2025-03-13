@@ -18,8 +18,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const MAX_RESULTS = 200
-
 type findResult struct {
 	documents []openapi.Document
 	cursor    *string
@@ -99,6 +97,9 @@ func (s *server) find(ctx context.Context, r kv.Read, model string, id string, f
 		attribute.String("filter", string(fasj)),
 		attribute.Int("limit", limit),
 	))
+	if cursor != nil {
+		span.SetAttributes(attribute.String("cursor", *cursor))
+	}
 	defer span.End()
 
 	// if the filter is by exact id, use a get
@@ -386,7 +387,7 @@ func (s *server) query(ctx context.Context, r kv.Read, req openapi.SearchRequest
 		req.Full = &full
 	}
 
-	var limit = MAX_RESULTS
+	var limit = 2000
 	if req.Limit != nil {
 		limit = *req.Limit
 	}

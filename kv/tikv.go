@@ -263,6 +263,11 @@ func (t *Tikv) Read() Read {
 	return &TikvRead{txn, nil}
 }
 
+func (t *Tikv) Ping() error {
+	_, err := t.k.CurrentTimestamp("global")
+	return err
+}
+
 func NewTikv() (KV, error) {
 	tikvep := os.Getenv("PD_ENDPOINT")
 	if tikvep == "" {

@@ -67,6 +67,7 @@ func Main(caCertPath, serverCertPath, serverKeyPath string) {
 
 	// Add middleware
 	e.Use(TracingMiddleware) // Add OpenTelemetry tracing middleware
+	e.Use(PrometheusMiddleware) // Add Prometheus metrics middleware
 	e.Use(loggingMiddleware)
 	e.Use(middleware.BodyLimit("2M"))
 
@@ -75,6 +76,8 @@ func Main(caCertPath, serverCertPath, serverKeyPath string) {
 
 	// Start server
 	s.startup()
+
+	go s.statsd()
 
 	if caCertPath != "" && serverCertPath != "" && serverKeyPath != "" {
 		// Load CA certificate for client verification
