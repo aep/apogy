@@ -20,3 +20,11 @@ func IsErrorValidationFailed(e error) bool {
 	}
 	return ee.Code == 422
 }
+
+func IsErrorConflict(e error) bool {
+	ee, ok := e.(Error)
+	if !ok {
+		return false
+	}
+	return ee.Code == 409
+}
