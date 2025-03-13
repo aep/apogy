@@ -26,7 +26,17 @@ type server struct {
 	modelCache otter.Cache[string, *Model]
 }
 
-func newServer(kv kv.KV, bs bus.Bus) *server {
+func Main(caCertPath, serverCertPath, serverKeyPath string) {
+
+	kv, err := kv.NewTikv()
+	if err != nil {
+		panic(err)
+	}
+
+	bs, err := bus.NewSolo()
+	if err != nil {
+		panic(err)
+	}
 
 	cache, err := otter.MustBuilder[string, *Model](100000).
 		WithTTL(60 * time.Second).
@@ -36,28 +46,14 @@ func newServer(kv kv.KV, bs bus.Bus) *server {
 		panic(err)
 	}
 
-	nu := &server{
+	s := &server{
 		kv:         kv,
 		bs:         bs,
 		modelCache: cache,
 	}
-	nu.ro = reactor.NewReactor()
-	return nu
-}
 
-func Main(caCertPath, serverCertPath, serverKeyPath string) {
+	s.ro = reactor.NewReactor(caCertPath, serverCertPath, serverKeyPath)
 
-	kv, err := kv.NewTikv()
-	if err != nil {
-		panic(err)
-	}
-
-	st, err := bus.NewSolo()
-	if err != nil {
-		panic(err)
-	}
-
-	s := newServer(kv, st)
 	e := echo.New()
 	e.HideBanner = true
 

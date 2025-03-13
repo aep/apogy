@@ -7,12 +7,15 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"encoding/json"
 	openapi "github.com/aep/apogy/api/go"
 	"github.com/aep/apogy/bus"
 	"github.com/aep/apogy/kv"
+	"github.com/aep/apogy/reactor"
 	"github.com/labstack/echo/v4"
+	"github.com/maypok86/otter"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -27,7 +30,20 @@ func setupTestServer(t *testing.T) (*echo.Echo, *server) {
 		t.Fatalf("Failed to create test bus: %v", err)
 	}
 
-	s := newServer(kv, bs)
+	cache, err := otter.MustBuilder[string, *Model](100000).
+		WithTTL(60 * time.Second).
+		Build()
+
+	if err != nil {
+		panic(err)
+	}
+
+	s := &server{
+		kv:         kv,
+		bs:         bs,
+		modelCache: cache,
+		ro:         reactor.NewReactor("", "", ""),
+	}
 	e := echo.New()
 	e.Binder = &Binder{
 		defaultBinder: &echo.DefaultBinder{},

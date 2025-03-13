@@ -15,14 +15,14 @@ func (*immutableReactor) Ready(model *openapi.Document, args interface{}) (inter
 
 func (*immutableReactor) Stop() {}
 
-func (*immutableReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
+func (*immutableReactor) Validate(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
 	if old != nil && nuw != nil {
 		return nil, fmt.Errorf("Document is immutable")
 	}
 	return nuw, nil
 }
 
-func (*immutableReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
+func (*immutableReactor) Reconcile(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
 	return nil
 }
 

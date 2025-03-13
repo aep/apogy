@@ -8,6 +8,7 @@ import (
 	openapi "github.com/aep/apogy/api/go"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -39,11 +40,11 @@ func (*HttpReactor) Ready(model *openapi.Document, args interface{}) (interface{
 	return nil, nil
 }
 
-func (hr *HttpReactor) Validate(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
+func (hr *HttpReactor) Validate(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) (*openapi.Document, error) {
 	return nuw, nil
 }
 
-func (hr *HttpReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
+func (hr *HttpReactor) Reconcile(ctx context.Context, ro *Reactor, old *openapi.Document, nuw *openapi.Document, args interface{}) error {
 	payload := openapi.ValidationRequest{
 		Current: old,
 		Pending: nuw,
@@ -54,7 +55,7 @@ func (hr *HttpReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw
 		return err
 	}
 
-	resp, err := hr.makeValidationRequest(ctx, hr.url, payloadBytes)
+	resp, err := hr.makeValidationRequest(ctx, hr.url, payloadBytes, ro)
 	if err != nil {
 		return fmt.Errorf("reconciler failed to respond in time: %w", err)
 	}
@@ -83,16 +84,33 @@ func (hr *HttpReactor) Reconcile(ctx context.Context, old *openapi.Document, nuw
 	return nil
 }
 
-func (hr *HttpReactor) makeValidationRequest(ctx context.Context, url string, payloadBytes []byte) (*http.Response, error) {
+func (hr *HttpReactor) makeValidationRequest(ctx context.Context, url string, payloadBytes []byte, ro *Reactor) (*http.Response, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	initialBackoff := 100 * time.Millisecond
 	maxAttempts := 5
 
+	// Create a custom client with mTLS for https URLs
+	client := &http.Client{}
+
 	backoff := initialBackoff
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		resp, err := http.Post(url, "application/json", bytes.NewBuffer(payloadBytes))
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		var resp *http.Response
+
+		// If URL starts with https://, use mTLS
+		if strings.HasPrefix(url, "https://") {
+			resp, err = hr.doMTLSRequest(req, ro)
+		} else {
+			resp, err = client.Do(req)
+		}
+
 		if err != nil {
 			slog.Error("validator failed", "validator", url, "error", err)
 			if attempt == maxAttempts {
@@ -118,4 +136,14 @@ func (hr *HttpReactor) makeValidationRequest(ctx context.Context, url string, pa
 		backoff *= 2
 	}
 	return nil, fmt.Errorf("request failed after %d attempts", maxAttempts)
+}
+
+func (hr *HttpReactor) doMTLSRequest(req *http.Request, ro *Reactor) (*http.Response, error) {
+	// Check if TLS client is already created
+	if ro.tlsClient == nil {
+		return nil, fmt.Errorf("apogy cant make https request to reactor since its not running with tls")
+	}
+
+	// Use the pre-configured HTTP client
+	return ro.tlsClient.Do(req)
 }
