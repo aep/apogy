@@ -65,6 +65,9 @@ func queryOne[Document any](client ClientInterface, ctx context.Context, q strin
 
 func query[Document any](client ClientInterface, ctx context.Context, q string, args ...interface{}) iter.Seq2[*Document, error] {
 
+	// TODO this is getting out of hand, we may need to reconsider json after all
+	buf := make([]byte, 0, 1024*1024*16)
+
 	return func(yield func(*Document, error) bool) {
 
 		rsp, err := client.QueryDocuments(ctx, Query{
@@ -89,8 +92,7 @@ func query[Document any](client ClientInterface, ctx context.Context, q string, 
 			}
 
 			scanner := bufio.NewScanner(rsp.Body)
-			buf := make([]byte, 0, 64*1024)
-			scanner.Buffer(buf, 1024*1024)
+			scanner.Buffer(buf, cap(buf))
 
 			for scanner.Scan() {
 
