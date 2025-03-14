@@ -407,6 +407,13 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 	// Delete the document
 	w.Del([]byte(path))
 
+	// TODO: this should eventually run async with a "about to be deleted" state
+	err = s.ro.Reconcile(ctx, doc, nil)
+	if err != nil {
+		span.RecordError(err)
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
 	// Measure KV commit time
 	commitStart := time.Now()
 	err = w.Commit(ctx)
@@ -424,15 +431,6 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 			kvCommitFailures.WithLabelValues("delete_document", "database_error").Inc()
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
-	}
-
-	// For delete, there are no retries to record as it's a single operation
-
-	err = s.ro.Reconcile(ctx, doc, nil)
-
-	if err != nil {
-		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	return c.NoContent(http.StatusOK)
