@@ -309,6 +309,9 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 	}
 
 	w, err := s.kv.ExclusiveWrite(ctx, path)
+	if err != nil {
+		return err
+	}
 	defer w.Close()
 
 	// First get the document to remove its indexes
