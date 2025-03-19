@@ -3,12 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"reflect"
 	"time"
 
 	openapi "github.com/aep/apogy/api/go"
+	"github.com/aep/apogy/kv"
 	"github.com/labstack/echo/v4"
 	tikerr "github.com/tikv/client-go/v2/error"
 	"go.opentelemetry.io/otel/attribute"
@@ -39,13 +39,13 @@ func (s *server) PutDocument(c echo.Context) error {
 
 	switch doc.Model {
 	case "Model":
-		err := s.validateSchemaSchema(ctx, doc)
+		err = s.validateSchemaSchema(ctx, doc)
 		if err != nil {
 			span.RecordError(err)
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
 		}
 	case "Reactor":
-		err := s.validateReactorSchema(ctx, doc)
+		err = s.validateReactorSchema(ctx, doc)
 		if err != nil {
 			span.RecordError(err)
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("validation error: %s", err))
@@ -60,64 +60,31 @@ func (s *server) PutDocument(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	// Try to save document with retry logic
-	attempts := 0
-	for i := 0; ; i++ {
-		attempts++
-		retrySpan := trace.SpanFromContext(ctx)
-		retrySpan.SetAttributes(attribute.Int("attempt", i+1))
-
-		err := s.putDocument1(c, ctx, doc, model)
-		if err == nil {
-			retrySpan.SetAttributes(attribute.Bool("success", true))
-			break
-		}
-
-		retrySpan.RecordError(err)
-
-		if echoErr, ok := err.(*echo.HTTPError); ok {
-			// Record failed commit
-			if echoErr.Code == http.StatusInternalServerError {
-				kvCommitFailures.WithLabelValues("put_document", "internal_error").Inc()
-			} else if echoErr.Code == http.StatusConflict {
-				kvCommitFailures.WithLabelValues("put_document", "write_conflict").Inc()
-			} else {
-				kvCommitFailures.WithLabelValues("put_document", "other").Inc()
-			}
-
-			// Record retries for failed operation
-			kvCommitRetries.WithLabelValues("put_document", "failed").Observe(float64(attempts - 1))
-			return echoErr
-		}
-
-		if i > 10 {
-			time.Sleep(100 * time.Millisecond)
-		} else {
-			time.Sleep(10 * time.Millisecond)
-		}
-
-		slog.Warn("putDocument1", "err", err)
-	}
-
-	// Record successful commit metrics
-	span.SetAttributes(attribute.Int("attempts", attempts))
-	kvCommitRetries.WithLabelValues("put_document", "success").Observe(float64(attempts - 1))
-
-	return c.JSON(http.StatusOK, doc)
-}
-
-func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi.Document, model *Model) error {
-
-	doccpy := *doc_
-	doc := &doccpy
-
-	w2 := s.kv.Write()
-	defer w2.Close()
-
 	path, err := safeDBPath(doc.Model, doc.Id)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
+
+	// for contested keys, use pessimistic locking
+	var hotKeys = [][]byte{}
+	if doc.Mut != nil {
+		hotKeys = append(hotKeys, path)
+	}
+
+	var w2 kv.Write
+	if len(hotKeys) == 0 {
+		w2 = s.kv.Write()
+	} else {
+		w2, err = s.kv.ExclusiveWrite(ctx, hotKeys...)
+		if err != nil {
+			return err
+		}
+
+		statLockRetries := w2.(*kv.TikvWrite).Stat()
+		span.SetAttributes(attribute.Int("lockRetries", statLockRetries))
+		kvLockRetries.WithLabelValues("hot", "true").Observe(float64(statLockRetries))
+	}
+	defer w2.Close()
 
 	now := time.Now()
 	doc.History = &openapi.History{
@@ -149,7 +116,7 @@ func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi
 			}
 
 			if reflect.DeepEqual(old.Val, doc.Val) {
-				return nil
+				return c.JSON(http.StatusOK, doc)
 			}
 
 			if old.Version != nil && doc.Version != nil {
@@ -255,7 +222,7 @@ func (s *server) putDocument1(c echo.Context, ctx context.Context, doc_ *openapi
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
 	}
 
-	return nil
+	return c.JSON(http.StatusOK, doc)
 }
 
 func (s *server) GetDocument(c echo.Context, model string, id string) error {

@@ -13,6 +13,7 @@ type KeyAndValue struct {
 type KV interface {
 	Close()
 	Write() Write
+	ExclusiveWrite(ctx context.Context, keys ...[]byte) (Write, error)
 	Read() Read
 	Ping() error
 }

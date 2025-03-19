@@ -2,14 +2,18 @@ package kv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
 	"os"
+	"time"
 
 	pingcaplog "github.com/pingcap/log"
 
 	"github.com/lmittmann/tint"
+	tikverr "github.com/tikv/client-go/v2/error"
+	"github.com/tikv/client-go/v2/kv"
 	"github.com/tikv/client-go/v2/txnkv"
 	"github.com/tikv/client-go/v2/txnkv/txnsnapshot"
 
@@ -45,6 +49,12 @@ type TikvWrite struct {
 	txn      *txnkv.KVTxn
 	err      error
 	commited bool
+
+	statLockRetries int
+}
+
+func (w *TikvWrite) Stat() (statLockRetries int) {
+	return w.statLockRetries
 }
 
 func (w *TikvWrite) Commit(ctx context.Context) error {
@@ -249,8 +259,66 @@ func (t *Tikv) Close() {
 
 func (t *Tikv) Write() Write {
 	txn, err := t.k.Begin()
-	txn.SetEnable1PC(true)
-	return &TikvWrite{txn, err, false}
+	//txn.SetEnable1PC(true)
+	return &TikvWrite{txn: txn, err: err}
+}
+
+func (t *Tikv) ExclusiveWrite(ctx context.Context, keys ...[]byte) (Write, error) {
+
+	var waitMs = int64(100)
+
+	// DO NOT use aggressive locking.
+	// it's a deadlock trap
+	// r.txn.StartAggressiveLocking()
+	// instead do the retry loop in the client (us)
+
+	txn, err := t.k.Begin()
+	if err != nil {
+		return nil, err
+	}
+	txn.SetPessimistic(true)
+
+	retries := 0
+	for {
+
+		waitMs += 1
+		retries += 1
+
+		lkctx := kv.NewLockCtx(txn.StartTS(), waitMs, time.Now())
+
+		err = txn.LockKeys(ctx, lkctx, keys...)
+		if err == nil {
+			break
+		}
+
+		// we got the lock but someone changed the key we're locking
+		// get a new txn with the current start time
+		if tikverr.IsErrWriteConflict(err) {
+			txn.Rollback()
+			txn, err = t.k.Begin()
+			if err != nil {
+				return nil, err
+			}
+			txn.SetPessimistic(true)
+			continue
+		}
+
+		if !errors.Is(err, tikverr.ErrLockWaitTimeout) {
+			return nil, err
+		}
+
+		select {
+		case <-ctx.Done():
+			if ctx.Err() == nil {
+				return nil, err
+			}
+			return nil, ctx.Err()
+		default:
+			continue
+		}
+	}
+
+	return &TikvWrite{txn: txn, statLockRetries: retries}, nil
 }
 
 func (t *Tikv) Read() Read {

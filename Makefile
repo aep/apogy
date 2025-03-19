@@ -10,7 +10,7 @@ apogy: api .PHONY
 
 
 test:
-	go test github.com/aep/apogy/server/...
+	go test -count=1  -v github.com/aep/apogy/server/...
 
 
 .PHONY:

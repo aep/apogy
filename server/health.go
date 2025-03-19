@@ -42,9 +42,9 @@ var (
 		[]string{"operation"},
 	)
 
-	kvCommitRetries = prometheus.NewHistogramVec(
+	kvLockRetries = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "kv_commit_retries",
+			Name:    "kv_lock_retries",
 			Help:    "Number of commit retries",
 			Buckets: []float64{0, 1, 2, 3, 4, 5, 10, 20, 40, 80, 160, 320},
 		},
@@ -75,7 +75,7 @@ func init() {
 	promRegistry.MustRegister(httpRequestsTotal)
 	promRegistry.MustRegister(httpRequestDuration)
 	promRegistry.MustRegister(kvCommitDuration)
-	promRegistry.MustRegister(kvCommitRetries)
+	promRegistry.MustRegister(kvLockRetries)
 	promRegistry.MustRegister(kvCommitFailures)
 }
 
