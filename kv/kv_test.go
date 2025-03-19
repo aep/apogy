@@ -38,6 +38,89 @@ func TestKVDoesPreventOutdatedWrites(t *testing.T) {
 	require.NoError(t, err, "w4 must succeed because it is fresh")
 }
 
+// this behaviour actually sucks because it means Delete in apogy must be locked
+// this test is just here in case they change their mind about it
+func TestKVDoesPreventOutdatedDoubleDelete(t *testing.T) {
+
+	k, err := NewTikv()
+	require.NoError(t, err)
+	defer k.Close()
+
+	var ctx = t.Context()
+	var key = []byte("TestKVDoesNotPreventOutdatedDoubleDelete")
+
+	prep := k.Write()
+	prep.Put(key, []byte("1"))
+	err = prep.Commit(ctx)
+	require.NoError(t, err)
+
+	w1 := k.Write()
+	w2 := k.Write()
+
+	w1.Del(key)
+	w2.Del(key)
+
+	err = w1.Commit(context.Background())
+	require.NoError(t, err)
+
+	err = w2.Commit(context.Background())
+	require.Error(t, err)
+}
+
+func TestKVDeleteAndPutMustConflict1(t *testing.T) {
+
+	k, err := NewTikv()
+	require.NoError(t, err)
+	defer k.Close()
+
+	var ctx = t.Context()
+	var key = []byte("TestKVDoesNotPreventOutdatedDoubleDelete")
+
+	prep := k.Write()
+	prep.Put(key, []byte("1"))
+	err = prep.Commit(ctx)
+	require.NoError(t, err)
+
+	w1 := k.Write()
+	w2 := k.Write()
+
+	w1.Put(key, []byte("2"))
+	w2.Del(key)
+
+	err = w1.Commit(context.Background())
+	require.NoError(t, err)
+
+	err = w2.Commit(context.Background())
+	require.Error(t, err)
+}
+
+func TestKVDeleteAndPutMustConflict2(t *testing.T) {
+
+	k, err := NewTikv()
+	require.NoError(t, err)
+	defer k.Close()
+
+	var ctx = t.Context()
+	var key = []byte("TestKVDoesNotPreventOutdatedDoubleDelete")
+
+	prep := k.Write()
+	prep.Put(key, []byte("1"))
+	err = prep.Commit(ctx)
+	require.NoError(t, err)
+
+	w1 := k.Write()
+	w2 := k.Write()
+
+	w1.Del(key)
+	w2.Put(key, []byte("2"))
+
+	err = w1.Commit(context.Background())
+	require.NoError(t, err)
+
+	err = w2.Commit(context.Background())
+	require.Error(t, err)
+}
+
 func TestKVDoesNotPreventDup(t *testing.T) {
 	k, err := NewTikv()
 	require.NoError(t, err)

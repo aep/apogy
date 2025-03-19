@@ -483,3 +483,47 @@ func TestConcurrentMutations_NeverFail(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, int64(concurrentCount), counterInt, "All mutations should have been applied")
 }
+
+func TestConcurrentDelete(t *testing.T) {
+	e, s := setupTestServer(t)
+
+	// Create a document with a counter
+	docId := "concurrent-delete-test"
+	initialVal := map[string]interface{}{
+		"counter": json.Number("0"),
+	}
+	initialDoc := openapi.Document{
+		Model: "Test.com.example",
+		Id:    docId,
+		Val:   initialVal,
+	}
+
+	// First PUT to create the document
+	docBytes, _ := json.Marshal(initialDoc)
+	req := httptest.NewRequest(http.MethodPost, "/v1/", bytes.NewReader(docBytes))
+	req.Header.Set(echo.HeaderContentType, "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	assert.NoError(t, s.PutDocument(c))
+
+	// Number of concurrent mutations to perform
+	concurrentCount := 50
+
+	// Launch concurrent mutations, all deleting the doc
+	var wg sync.WaitGroup
+	for i := 0; i < concurrentCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			reqMut := httptest.NewRequest(http.MethodDelete, "/v1", nil)
+			reqMut.Header.Set(echo.HeaderContentType, "application/json")
+
+			err := s.DeleteDocument(c, initialDoc.Model, initialDoc.Id)
+			assert.NoError(t, err, "Concurrent delete should not fail")
+		}()
+	}
+
+	wg.Wait()
+}

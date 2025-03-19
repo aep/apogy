@@ -123,7 +123,11 @@ func (w *TikvWrite) Del(key []byte) error {
 	if w.err != nil {
 		return w.err
 	}
-	return w.txn.Delete(key)
+	err := w.txn.Delete(key)
+	if err != nil {
+		w.err = err
+	}
+	return err
 }
 
 func (r *TikvWrite) Iter(ctx context.Context, start []byte, end []byte) iter.Seq2[KeyAndValue, error] {

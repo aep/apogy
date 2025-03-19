@@ -71,6 +71,8 @@ func (s *server) PutDocument(c echo.Context) error {
 		hotKeys = append(hotKeys, path)
 	}
 
+	// TODO add unique
+
 	var w2 kv.Write
 	if len(hotKeys) == 0 {
 		w2 = s.kv.Write()
@@ -306,7 +308,7 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	w := s.kv.Write()
+	w, err := s.kv.ExclusiveWrite(ctx, path)
 	defer w.Close()
 
 	// First get the document to remove its indexes
@@ -315,12 +317,12 @@ func (s *server) DeleteDocument(c echo.Context, model string, id string) error {
 	if err != nil {
 		span.RecordError(err)
 		if tikerr.IsErrNotFound(err) {
-			return echo.NewHTTPError(http.StatusNotFound, "document not found")
+			return c.NoContent(http.StatusOK)
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("database error: %v", err))
 	}
 	if bytes == nil {
-		notFoundErr := echo.NewHTTPError(http.StatusNotFound, "document not found")
+		notFoundErr := echo.NewHTTPError(http.StatusNotFound, "document is empty")
 		span.RecordError(notFoundErr)
 		return notFoundErr
 	}
